@@ -49,6 +49,10 @@ def test_rename_clear_and_delete_session(isolated_db: Path) -> None:
     database.save_message("s1", "user", "hello")
     database.save_message("s1", "assistant", "world")
 
+    roles = database.get_database_stats()["message_roles"]
+    assert roles.get("user") == 1
+    assert roles.get("assistant") == 1
+
     renamed = database.rename_session("s1", "  新标题  ")
     assert renamed is not None
     assert renamed["title"] == "新标题"
@@ -63,4 +67,5 @@ def test_rename_clear_and_delete_session(isolated_db: Path) -> None:
 
     stats = database.get_database_stats()
     assert stats["counts"]["sessions"] == 0
+    assert stats["message_roles"].get("user", 0) == 0
     assert stats["database_bytes"] >= 0

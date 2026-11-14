@@ -1648,10 +1648,15 @@
         const session = currentSessionId ? sessions.find(item => item.id === currentSessionId) : null;
         let messages = [];
         let auditStats = [];
+        let sessionUsage = null;
         if (session) {
           messages = await statsJson(`/api/sessions/${encodeURIComponent(currentSessionId)}/messages`);
           auditStats = await statsJson(`/api/audit/stats?session_id=${encodeURIComponent(currentSessionId)}`);
+          sessionUsage = await statsJson(`/api/usage/stats?session_id=${encodeURIComponent(currentSessionId)}`).catch(() => null);
         }
+        const usageTotal = sessionUsage?.total || {};
+        const usageRecent = sessionUsage?.recent || null;
+        const fmtUsage = value => Number(value || 0).toLocaleString();
         const currentMessages = messages.length;
         const currentChars = messages.reduce((sum, item) => sum + String(item.content || '').length, 0);
         const totalTools = auditStats.reduce((sum, item) => sum + Number(item.count || 0), 0);
@@ -1719,6 +1724,26 @@
               <span class="text-right truncate max-w-[64%] text-[#E7F0EC]">${escapeHtml(model.model_name || model.label || '')}</span>
             </div>
           </div>
+          <div class="rounded-xl bg-[#1F2D28] border border-[#2A3833] p-3 space-y-1.5">
+            <div class="text-[9px] uppercase tracking-wider text-[#7F928C]">Token 用量</div>
+            <div class="flex items-center justify-between gap-3 text-[10px]">
+              <span class="text-[#7F928C]">输入</span>
+              <span class="font-mono text-[#E7F0EC]">${fmtUsage(usageTotal.input_tokens)}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3 text-[10px]">
+              <span class="text-[#7F928C]">输出</span>
+              <span class="font-mono text-[#E7F0EC]">${fmtUsage(usageTotal.output_tokens)}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3 text-[10px]">
+              <span class="text-[#7F928C]">缓存读取 / 命中</span>
+              <span class="font-mono text-[#E7F0EC]">${fmtUsage(usageTotal.cache_read_tokens)} · ${Number(usageTotal.cache_hit_rate || 0).toFixed(1)}%</span>
+            </div>
+            <div class="flex items-center justify-between gap-3 text-[10px]">
+              <span class="text-[#7F928C]">成本</span>
+              <span class="font-mono text-[#E7F0EC]">${Number(usageTotal.cost || 0) > 0 ? `US$${Number(usageTotal.cost).toFixed(6)}` : '—'}</span>
+            </div>
+            ${usageRecent ? `<div class="pt-1 mt-1 border-t border-[#2A3833] text-[9px] text-[#9AA9A4] leading-relaxed">最近一条助手消息：输入 ${fmtUsage(usageRecent.input_tokens)} · 输出 ${fmtUsage(usageRecent.output_tokens)} · 推理 ${fmtUsage(usageRecent.reasoning_tokens)}</div>` : '<div class="text-[9px] text-[#C98B4E] leading-relaxed">还没有采集到模型 usage，发送消息后自动记录。</div>'}
+          </div>
           <div class="text-[9px] text-[#7F928C] text-center pt-1">全局统计：设置 → 数据统计</div>`;
         if (updated) updated.textContent = `更新于 ${new Date().toLocaleTimeString()}`;
         lucide.createIcons();
@@ -1733,15 +1758,33 @@
       if (!box) return;
       box.innerHTML = '<div class="py-10 text-center text-xs text-[#9AA9A4]">正在读取全局数据…</div>';
       try {
-        const [info, auditStats, skills, schedules] = await Promise.all([
+        const [info, auditStats, skills, schedules, usageStats] = await Promise.all([
           statsJson('/api/system/info'),
           statsJson('/api/audit/stats'),
           statsJson('/api/skills'),
           statsJson('/api/schedules'),
+          statsJson('/api/usage/stats'),
         ]);
         const counts = info.database?.counts || {};
+        const roles = info.database?.message_roles || {};
         const mcpServers = Array.isArray(info.mcp_servers) ? info.mcp_servers : [];
         const connectedMcp = mcpServers.filter(item => item.connected).length;
+        const totalUsage = usageStats.total || {};
+        const recentUsage = usageStats.recent || null;
+        const contextLimit = Number(info.active_model?.limit?.context || 0);
+        const lastInput = Number(recentUsage?.input_tokens || 0);
+        const contextPercent = contextLimit
+          ? Math.min(100, (lastInput / contextLimit) * 100)
+          : null;
+        const number = value => Number(value || 0).toLocaleString();
+        const tokenRows = usage => [
+          statsRow('输入', number(usage.input_tokens)),
+          statsRow('输出', number(usage.output_tokens)),
+          statsRow('推理', number(usage.reasoning_tokens)),
+          statsRow('缓存读取', number(usage.cache_read_tokens)),
+          statsRow('缓存写入', number(usage.cache_write_tokens)),
+          statsRow('缓存命中', `${Number(usage.cache_hit_rate || 0).toFixed(1)}%`),
+        ].join('');
         const totalTools = auditStats.reduce((sum, item) => sum + Number(item.count || 0), 0);
         const okTools = auditStats
           .filter(item => String(item.status || '').toUpperCase() === 'OK')
@@ -1764,9 +1807,44 @@
             ${metric('技能', Array.isArray(skills) ? skills.length : 0, 'SKILL.md')}
             ${metric('MCP', `${connectedMcp}/${mcpServers.length}`, '已连接 / 总数')}
           </div>
+          <div class="text-xs font-bold text-[#15201D] mt-2">消息构成</div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            ${metric('用户消息', number(roles.user || 0), 'user')}
+            ${metric('助手消息', number(roles.assistant || 0), 'assistant')}
+            ${metric('工具消息', number(roles.tool || 0), 'tool')}
+            ${metric('成本', totalUsage.cost > 0 ? `US$${Number(totalUsage.cost).toFixed(4)}` : '—', totalUsage.cost > 0 ? '按模型价格计算' : '价格未配置')}
+          </div>
+          <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+            <div class="flex items-center justify-between gap-3">
+              <div class="text-xs font-bold text-[#15201D]">上下文占用</div>
+              <div class="text-[10px] text-[#7A8C87]">最近一次模型调用输入 / 上下文窗口</div>
+            </div>
+            ${contextLimit
+              ? `<div class="flex items-center justify-between gap-3 mt-2 text-[10px]"><span class="font-mono text-[#15201D]">${number(lastInput)} / ${number(contextLimit)} tokens</span><span class="font-semibold text-[#178A6C]">${contextPercent.toFixed(1)}%</span></div>
+                 <div class="h-1.5 rounded-full bg-[#EDF3F1] mt-1.5 overflow-hidden"><div class="h-full rounded-full bg-[#59BFA1]" style="width:${contextPercent.toFixed(1)}%"></div></div>`
+              : '<div class="text-[10px] text-[#9AA9A4] mt-2">当前模型未配置上下文窗口，可在模型配置中补充 limit.context。</div>'}
+          </section>
+          <div class="text-xs font-bold text-[#15201D] mt-2">Token 用量</div>
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+            ${metric('输入 Token', number(totalUsage.input_tokens), `${number(totalUsage.calls)} 次模型调用`)}
+            ${metric('输出 Token', number(totalUsage.output_tokens), '模型生成')}
+            ${metric('推理 Token', number(totalUsage.reasoning_tokens), 'reasoning')}
+            ${metric('缓存读取', number(totalUsage.cache_read_tokens), 'cache read')}
+            ${metric('缓存写入', number(totalUsage.cache_write_tokens), 'cache write')}
+            ${metric('缓存命中', `${Number(totalUsage.cache_hit_rate || 0).toFixed(1)}%`, 'cache read / input')}
+          </div>
+          <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm text-[11px]">
+            <div class="font-bold text-xs text-[#15201D] mb-2">会话总计</div>
+            ${tokenRows(totalUsage)}
+          </section>
+          <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm text-[11px]">
+            <div class="font-bold text-xs text-[#15201D] mb-2">最近一条助手消息</div>
+            ${recentUsage ? tokenRows(recentUsage) : '<div class="text-[#9AA9A4] py-2">尚未采集到模型 usage。模型返回 usage 后自动记录。</div>'}
+          </section>
           <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm text-[11px]">
             <div class="font-bold text-xs text-[#15201D] mb-2">运行信息</div>
             ${statsRow('当前模型', escapeHtml(info.active_model?.label || '—'))}
+            ${statsRow('上下文窗口', info.active_model?.limit?.context ? `${number(info.active_model.limit.context)} tokens` : '未配置')}
             ${statsRow('项目 / 团队', `${counts.projects ?? 0} 个项目 · ${counts.teams ?? 0} 个团队`)}
             ${statsRow('用户', String(counts.users ?? 0))}
             ${statsRow('定时任务', `${enabledSchedules} 个启用 · 共 ${counts.scheduled_tasks ?? 0} 个`)}

@@ -1415,12 +1415,20 @@ def get_database_stats() -> Dict[str, Any]:
     ):
         cursor.execute(f"SELECT COUNT(*) AS count FROM {table}")
         counts[table] = int(cursor.fetchone()["count"])
+    cursor.execute("SELECT role, COUNT(*) AS count FROM messages GROUP BY role")
+    message_roles = {
+        str(row["role"]): int(row["count"]) for row in cursor.fetchall()
+    }
     conn.close()
     try:
         size_bytes = os.path.getsize(DB_PATH)
     except OSError:
         size_bytes = 0
-    return {"counts": counts, "database_bytes": size_bytes}
+    return {
+        "counts": counts,
+        "message_roles": message_roles,
+        "database_bytes": size_bytes,
+    }
 
 
 def get_session_messages(session_id: str) -> List[Dict[str, Any]]:

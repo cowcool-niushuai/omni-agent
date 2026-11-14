@@ -382,6 +382,7 @@ class ModelManager:
             "adapter": adapter,
             "is_configured": bool(provider_secret(provider_key, provider)),
             "limit": model.get("limit") or {},
+            "pricing": model.get("pricing") or {},
             "capabilities": model.get("capabilities") or {},
         }
         if include_secret:

@@ -21,6 +21,7 @@ import audit
 import database
 import permission
 import skills_manager
+import usage
 from agent_core import agent_core
 from browser import browser_manager
 from mcp_api import router as mcp_admin_router
@@ -1214,6 +1215,13 @@ async def api_audit(
 @app.get("/api/audit/stats")
 async def api_audit_stats(session_id: Optional[str] = None):
     return audit.audit_stats(session_id)
+
+
+@app.get("/api/usage/stats")
+async def api_usage_stats(session_id: Optional[str] = None):
+    if session_id:
+        _require_session(session_id)
+    return await run_in_threadpool(usage.usage_summary, session_id)
 
 
 @app.get("/api/browser/status")

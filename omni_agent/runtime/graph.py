@@ -36,6 +36,7 @@ import database
 import permission
 import prompts
 import tools
+import usage
 from model_manager import model_manager
 from omni_agent import tenancy
 from omni_agent.config import get_settings
@@ -293,8 +294,15 @@ class AgentRuntime:
         model_messages.extend(messages[summary_upto:])
 
         tool_schemas = await asyncio.to_thread(tools.get_all_tool_definitions)
+        usage_data: dict[str, int] | None = None
         try:
-            content, reasoning, tool_calls, parsed_arguments = await self._stream_completion(
+            (
+                content,
+                reasoning,
+                tool_calls,
+                parsed_arguments,
+                usage_data,
+            ) = await self._stream_completion(
                 client=client,
                 model=model_name,
                 messages=model_messages,
@@ -312,6 +320,21 @@ class AgentRuntime:
                 "final_answer": text,
                 "error": str(exc),
             }
+
+        if usage_data:
+            try:
+                model_profile = await asyncio.to_thread(
+                    model_manager.get_active_model_info
+                )
+                cost = usage.compute_cost(
+                    usage_data, model_profile.get("pricing") or {}
+                )
+                def _record_usage() -> None:
+                    usage.record_usage(session_id, model_name, usage_data, cost=cost)
+
+                await asyncio.to_thread(_record_usage)
+            except Exception:
+                log.warning("usage_record_failed", session_id=session_id)
 
         if reasoning:
             _emit(writer, {"type": "thought", "content": reasoning})
@@ -666,7 +689,13 @@ class AgentRuntime:
         messages: list[dict[str, Any]],
         tool_schemas: list[dict[str, Any]],
         writer: Callable[[dict[str, Any]], None] | None,
-    ) -> tuple[str, str, list[dict[str, Any]], list[dict[str, Any]]]:
+    ) -> tuple[
+        str,
+        str,
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        dict[str, int] | None,
+    ]:
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -676,13 +705,25 @@ class AgentRuntime:
         if tool_schemas:
             kwargs["tools"] = tool_schemas
             kwargs["tool_choice"] = "auto"
+        if getattr(client, "kind", "") != "anthropic":
+            kwargs["stream_options"] = {"include_usage": True}
 
-        stream = await client.chat.completions.create(**kwargs)
+        try:
+            stream = await client.chat.completions.create(**kwargs)
+        except Exception:
+            if "stream_options" not in kwargs:
+                raise
+            kwargs.pop("stream_options", None)
+            stream = await client.chat.completions.create(**kwargs)
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         tool_parts: dict[int, dict[str, Any]] = {}
+        usage_data: dict[str, int] | None = None
 
         async for chunk in stream:
+            raw_usage = getattr(chunk, "usage", None)
+            if raw_usage is not None:
+                usage_data = usage.normalize_usage(raw_usage) or usage_data
             choices = getattr(chunk, "choices", None) or []
             if not choices:
                 continue
@@ -740,6 +781,7 @@ class AgentRuntime:
             "".join(reasoning_parts),
             tool_calls,
             parsed_arguments,
+            usage_data,
         )
 
     async def _execute_tool(

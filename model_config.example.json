@@ -14,17 +14,35 @@
         "deepseek-v4-pro": {
           "model_name": "deepseek-v4-pro",
           "label": "DeepSeek-V4-Pro (DeepSeek-V4-Pro-0813 旗舰·1M上下文·默认思考)",
-          "limit": {},
+          "limit": {
+            "context": 1000000,
+            "output": 65536
+          },
           "capabilities": {
             "tools": true
+          },
+          "pricing": {
+            "input": 0.28,
+            "output": 0.42,
+            "cache_read": 0.028,
+            "cache_write": 0.28
           }
         },
         "deepseek-flash": {
           "model_name": "deepseek-flash",
           "label": "DeepSeek-Flash (DeepSeek-V4.1-Flash-1017 极速·1M上下文·视觉理解)",
-          "limit": {},
+          "limit": {
+            "context": 1000000,
+            "output": 65536
+          },
           "capabilities": {
             "tools": true
+          },
+          "pricing": {
+            "input": 0.28,
+            "output": 0.42,
+            "cache_read": 0.028,
+            "cache_write": 0.28
           }
         }
       }
@@ -239,6 +257,12 @@
           "limit": {},
           "capabilities": {
             "tools": true
+          },
+          "pricing": {
+            "input": 0.28,
+            "output": 0.42,
+            "cache_read": 0.028,
+            "cache_write": 0.28
           }
         },
         "sf-deepseek-r1": {
@@ -247,6 +271,12 @@
           "limit": {},
           "capabilities": {
             "tools": true
+          },
+          "pricing": {
+            "input": 0.28,
+            "output": 0.42,
+            "cache_read": 0.028,
+            "cache_write": 0.28
           }
         },
         "sf-qwq-32b": {
@@ -281,6 +311,12 @@
           "limit": {},
           "capabilities": {
             "tools": true
+          },
+          "pricing": {
+            "input": 0.28,
+            "output": 0.42,
+            "cache_read": 0.028,
+            "cache_write": 0.28
           }
         }
       }
