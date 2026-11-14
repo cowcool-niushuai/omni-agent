@@ -303,7 +303,18 @@
       </div>
     </div>
 
-    <!-- 2. WORKSPACE TAB -->
+    <!-- 2. STATS TAB -->
+    <div id="tab-stats" class="hidden flex-1 flex flex-col h-full p-6 overflow-y-auto">
+      <div class="max-w-3xl mx-auto w-full">
+        <div class="flex justify-end mb-3">
+          <button onclick="loadGlobalStats()" class="text-xs text-[#7A8C87] hover:text-[#15201D] flex items-center gap-1">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> 刷新
+          </button>
+        </div>
+        <div id="global-stats-body" class="space-y-4"></div>
+      </div>
+    </div>
+
     <div id="tab-workspace" class="hidden flex-1 flex flex-col h-full p-6 overflow-hidden">
       <div class="max-w-4xl mx-auto w-full flex-1 flex flex-col overflow-hidden">
         <div class="flex items-center justify-between mb-4">
@@ -1499,7 +1510,7 @@
       return response.json();
     }
 
-    async function loadStatsPanel() {
+    async function loadStatsPanelLegacy() {
       const body = document.getElementById('stats-body');
       const updated = document.getElementById('stats-updated');
       if (!body) return;
@@ -1603,6 +1614,180 @@
       if (event.key === 'Escape') closeStatsPanel();
     });
 
+    function statsRow(label, value, color = 'text-[#15201D]') {
+      return `
+        <div class="flex items-start justify-between gap-3 py-1.5 border-b border-[#EEF4F2] last:border-0">
+          <span class="text-[#7A8C87] shrink-0">${label}</span>
+          <span class="text-right max-w-[68%] break-all ${color}">${value}</span>
+        </div>`;
+    }
+
+    function formatDurationMs(ms) {
+      if (!Number.isFinite(ms) || ms <= 0) return '—';
+      const total = Math.round(ms / 1000);
+      const hours = Math.floor(total / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      const seconds = total % 60;
+      if (hours) return `${hours}h ${minutes}m`;
+      if (minutes) return `${minutes}m ${seconds}s`;
+      return `${seconds}s`;
+    }
+
+    async function loadStatsPanel() {
+      const model = activeModelInfo || {};
+      const body = document.getElementById('stats-body');
+      const updated = document.getElementById('stats-updated');
+      const gauge = document.getElementById('stats-gauge');
+      const gaugeText = document.getElementById('stats-gauge-text');
+      const subtitle = document.getElementById('stats-subtitle');
+      if (!body) return;
+      body.innerHTML = '<div class="py-8 text-center text-[#9AA9A4]">正在读取会话数据…</div>';
+      if (updated) updated.textContent = '更新中…';
+      try {
+        const sessions = await statsJson('/api/sessions?limit=100');
+        const session = currentSessionId ? sessions.find(item => item.id === currentSessionId) : null;
+        let messages = [];
+        let auditStats = [];
+        if (session) {
+          messages = await statsJson(`/api/sessions/${encodeURIComponent(currentSessionId)}/messages`);
+          auditStats = await statsJson(`/api/audit/stats?session_id=${encodeURIComponent(currentSessionId)}`);
+        }
+        const currentMessages = messages.length;
+        const currentChars = messages.reduce((sum, item) => sum + String(item.content || '').length, 0);
+        const totalTools = auditStats.reduce((sum, item) => sum + Number(item.count || 0), 0);
+        const okTools = auditStats
+          .filter(item => String(item.status || '').toUpperCase() === 'OK')
+          .reduce((sum, item) => sum + Number(item.count || 0), 0);
+        const failedTools = Math.max(0, totalTools - okTools);
+        const successRate = totalTools ? Math.round((okTools / totalTools) * 100) : null;
+
+        let duration = '—';
+        if (messages.length >= 2) {
+          const parse = value => new Date(String(value).replace(' ', 'T') + 'Z').getTime();
+          const first = parse(messages[0].created_at);
+          const last = parse(messages[messages.length - 1].created_at);
+          if (Number.isFinite(first) && Number.isFinite(last) && last >= first) {
+            duration = formatDurationMs(last - first);
+          }
+        }
+
+        if (gauge) {
+          const degrees = successRate === null ? 0 : successRate * 3.6;
+          gauge.style.background = `conic-gradient(#59D6B3 0deg ${degrees}deg, #2A3833 ${degrees}deg 360deg)`;
+        }
+        if (gaugeText) gaugeText.textContent = successRate === null ? '—' : `${successRate}%`;
+        if (subtitle) {
+          subtitle.textContent = successRate === null
+            ? '本会话暂无工具调用'
+            : `本会话工具成功率 · ${okTools}/${totalTools}`;
+        }
+
+        const title = session?.title
+          || document.getElementById('current-session-title')?.textContent?.trim()
+          || '新对话';
+        const projectName = document.getElementById('project-select')?.selectedOptions?.[0]?.textContent?.trim() || '—';
+        const modelLabel = activeModelInfo?.label
+          || document.getElementById('model-badge')?.textContent?.trim()
+          || '—';
+
+        body.innerHTML = `
+          <div class="rounded-xl bg-[#1F2D28] border border-[#2A3833] p-3">
+            <div class="text-[9px] uppercase tracking-wider text-[#7F928C] mb-1">当前会话</div>
+            <div class="font-semibold text-[#E7F0EC] truncate">${escapeHtml(title)}</div>
+            <div class="text-[10px] text-[#9AA9A4] mt-1">${currentMessages} 条消息 · ${currentChars.toLocaleString()} 字符</div>
+            ${session ? '' : '<div class="text-[10px] text-[#C98B4E] mt-1">发送第一条消息后开始统计</div>'}
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="rounded-xl bg-[#1F2D28] border border-[#2A3833] p-3">
+              <div class="text-[9px] uppercase tracking-wider text-[#7F928C]">工具调用</div>
+              <div class="text-lg font-semibold text-[#E7F0EC] mt-1">${totalTools}</div>
+              <div class="text-[9px] text-[#9AA9A4] mt-0.5">成功 ${okTools} · 失败 ${failedTools}</div>
+            </div>
+            <div class="rounded-xl bg-[#1F2D28] border border-[#2A3833] p-3">
+              <div class="text-[9px] uppercase tracking-wider text-[#7F928C]">会话时长</div>
+              <div class="text-lg font-semibold text-[#E7F0EC] mt-1">${duration}</div>
+              <div class="text-[9px] text-[#9AA9A4] mt-0.5">${currentMessages} 条消息</div>
+            </div>
+          </div>
+          <div class="rounded-xl bg-[#1F2D28] border border-[#2A3833] px-3 py-1">
+            <div class="flex items-center justify-between gap-3 py-1">
+              <span class="text-[#7F928C] shrink-0">项目</span>
+              <span class="text-right truncate max-w-[64%] text-[#E7F0EC]">${escapeHtml(projectName)}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3 py-1">
+              <span class="text-[#7F928C] shrink-0">模型</span>
+              <span class="text-right truncate max-w-[64%] text-[#E7F0EC]">${escapeHtml(model.model_name || model.label || '')}</span>
+            </div>
+          </div>
+          <div class="text-[9px] text-[#7F928C] text-center pt-1">全局统计：设置 → 数据统计</div>`;
+        if (updated) updated.textContent = `更新于 ${new Date().toLocaleTimeString()}`;
+        lucide.createIcons();
+      } catch (error) {
+        body.innerHTML = `<div class="rounded-xl border border-[#6B3A3A] bg-[#2A1D1D] p-3 text-[#F0C9C9]">统计加载失败：${escapeHtml(error.message || String(error))}</div>`;
+        if (updated) updated.textContent = '更新失败';
+      }
+    }
+
+    async function loadGlobalStats() {
+      const box = document.getElementById('global-stats-body');
+      if (!box) return;
+      box.innerHTML = '<div class="py-10 text-center text-xs text-[#9AA9A4]">正在读取全局数据…</div>';
+      try {
+        const [info, auditStats, skills, schedules] = await Promise.all([
+          statsJson('/api/system/info'),
+          statsJson('/api/audit/stats'),
+          statsJson('/api/skills'),
+          statsJson('/api/schedules'),
+        ]);
+        const counts = info.database?.counts || {};
+        const mcpServers = Array.isArray(info.mcp_servers) ? info.mcp_servers : [];
+        const connectedMcp = mcpServers.filter(item => item.connected).length;
+        const totalTools = auditStats.reduce((sum, item) => sum + Number(item.count || 0), 0);
+        const okTools = auditStats
+          .filter(item => String(item.status || '').toUpperCase() === 'OK')
+          .reduce((sum, item) => sum + Number(item.count || 0), 0);
+        const enabledSchedules = Array.isArray(schedules)
+          ? schedules.filter(item => item.enabled).length
+          : 0;
+        const metric = (label, value, sub, color = '#15201D') => `
+          <div class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-3 shadow-sm">
+            <div class="text-[10px] text-[#7A8C87]">${label}</div>
+            <div class="text-xl font-bold mt-1" style="color:${color}">${value}</div>
+            <div class="text-[10px] text-[#9AA9A4] mt-0.5">${sub}</div>
+          </div>`;
+        box.innerHTML = `
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+            ${metric('会话', counts.sessions ?? 0, '全部项目')}
+            ${metric('消息', counts.messages ?? 0, '全部会话')}
+            ${metric('工具调用', totalTools, `成功 ${okTools}`)}
+            ${metric('数据库', formatBytes(info.database?.database_bytes || 0), 'SQLite')}
+            ${metric('技能', Array.isArray(skills) ? skills.length : 0, 'SKILL.md')}
+            ${metric('MCP', `${connectedMcp}/${mcpServers.length}`, '已连接 / 总数')}
+          </div>
+          <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm text-[11px]">
+            <div class="font-bold text-xs text-[#15201D] mb-2">运行信息</div>
+            ${statsRow('当前模型', escapeHtml(info.active_model?.label || '—'))}
+            ${statsRow('项目 / 团队', `${counts.projects ?? 0} 个项目 · ${counts.teams ?? 0} 个团队`)}
+            ${statsRow('用户', String(counts.users ?? 0))}
+            ${statsRow('定时任务', `${enabledSchedules} 个启用 · 共 ${counts.scheduled_tasks ?? 0} 个`)}
+            ${statsRow('调度器', info.scheduler?.running ? '运行中' : '未运行')}
+            ${statsRow('浏览器', info.browser_running ? '运行中' : '未启动')}
+            ${statsRow('运行时间', formatUptime(info.uptime_seconds || 0))}
+            ${statsRow('版本', `${escapeHtml(info.version || '')} · ${escapeHtml(info.environment || '')}`)}
+          </section>
+          <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm text-[11px]">
+            <div class="font-bold text-xs text-[#15201D] mb-2">存储位置</div>
+            ${statsRow('工作区', escapeHtml(info.workspace_dir || '—'))}
+            ${statsRow('数据目录', escapeHtml(info.data_dir || '—'))}
+            ${statsRow('Checkpoint', formatBytes(info.checkpoint_bytes || 0))}
+          </section>`;
+        lucide.createIcons();
+      } catch (error) {
+        box.innerHTML = `<div class="rounded-xl border border-[#D98B8B] bg-[#FFF5F5] p-4 text-xs text-[#8B2E2E]">全局统计加载失败：${escapeHtml(error.message || String(error))}</div>`;
+      }
+    }
+
+
     function switchTab(tab) {
       const primaryTabs = ['chat', 'workspace'];
       ['chat', 'skills', 'mcp', 'audit', 'schedules', 'workspace', 'memory', 'team'].forEach(t => {
@@ -1638,6 +1823,7 @@
 
     const SETTINGS_SECTIONS = [
       { id: 'general', label: '通用', icon: 'settings-2', desc: '模型、运行环境与高级功能入口。' },
+      { id: 'stats', label: '数据统计', icon: 'bar-chart-3', desc: '全局会话、消息、工具调用与运行数据。' },
       { id: 'memory', label: '记忆中枢', icon: 'database', desc: '长期记忆、用户偏好与项目知识库。' },
       { id: 'skills', label: '技能库', icon: 'sparkles', desc: '管理与激活 SKILL.md 能力包。' },
       { id: 'mcp', label: 'MCP 服务', icon: 'layers', desc: '连接外部 MCP Server 与工具数据源。' },
@@ -1735,6 +1921,7 @@
       if (sectionId === 'team') loadTeamData();
       if (sectionId === 'skills' && typeof loadSkills === 'function') loadSkills();
       if (sectionId === 'mcp' && typeof loadMCPStatus === 'function') loadMCPStatus();
+      if (sectionId === 'stats') loadGlobalStats();
       document.getElementById('settings-content').scrollTop = 0;
       lucide.createIcons();
     }
