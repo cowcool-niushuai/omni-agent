@@ -5,7 +5,7 @@
 
 OmniAgent 是一个**单机单用户**的通用智能体应用：它不只回答问题，还能在工作区里读写文件、执行命令、运行 Python、调用 MCP 工具，并在高危操作前暂停，等待你批准后继续执行。
 
-项目当前处于 **Phase 3（能力扩展）进行中** 的状态：Phase 2 的沙箱、命令策略、SSRF 与审计已完成，Phase 3 的本地 Memory/RAG 与定时任务已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
+项目当前已完成 **Phase 3（能力扩展）**：Phase 2 的沙箱、命令策略、SSRF 与审计，以及 Phase 3 的本地 Memory/RAG、定时任务、官方 MCP SDK 与无头浏览器自动化均已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
 
 ---
 
@@ -49,6 +49,7 @@ START -> agent -> (需要审批?) -> approval -> tools -> agent -> ... -> END
 - `file_list` / `file_read` / `file_write` / `file_edit`
 - `bash_run` / `python_eval`
 - `web_fetch`
+- `browser`（无头浏览器：导航、读取、截图、点击/填写/按键）
 - `rag_search` / `read_skill_doc`
 - `spawn_subagent`（隔离子智能体）
 
@@ -139,6 +140,25 @@ Web 控制台新增“审计记录”页，也可以调用 `GET /api/audit`、`G
 - 支持官方 `CallToolResult` 文本/图片/音频/资源链接内容块，结构化结果自动转 JSON
 - `mcp_config.json` 的 Server 配置支持 `command`、`args`、`env`、`cwd`、`enabled`
 
+### 12. 无头浏览器自动化
+
+`browser.py` 基于 Playwright + Chromium 提供受控的网页交互能力：
+
+- 首次使用时惰性启动无头浏览器；独立守护线程持有 Playwright 对象，避免同步 API 的线程亲和问题
+- 操作：`goto`、`text`、`screenshot`、`click`、`fill`、`press`、`wait`、`back`、`forward`、`reload`、`status`、`close`
+- `goto` 先经过静态 SSRF 校验 + DNS 解析；页面所有子资源请求再经过 `context.route` 校验，私网/回环/云元数据地址会被直接阻断
+- 不暴露 `page.evaluate`，不允许执行任意 JavaScript；下载与 Service Worker 默认关闭
+- `click` / `fill` / `press` 属于 `ASK_USER`，需要人工审批；定时任务中会被自动拒绝
+- 截图只能写入 `workspace/browser/`，只允许 `.png`，并有文件大小上限
+- 未配置 `BROWSER_PROXY` 时自动复用环境变量 `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`
+- `GET /api/browser/status` 查看运行状态；`/health` 也会返回 `browser_running`
+
+首次部署需安装 Chromium：
+
+```bash
+uv run playwright install chromium
+```
+
 ---
 
 ## 架构
@@ -194,6 +214,7 @@ omni-agent/
 ├── prompts.py                 # 动态系统提示词（稳定+相关记忆注入）
 ├── retrieval.py               # BM25 + 中英文混合分词（记忆/知识库）
 ├── scheduler.py               # 定时任务调度器（无人值守 auto_reject）
+├── browser.py                 # Playwright 无头浏览器（SSRF/审批/截图沙箱）
 ├── database.py                # SQLite 持久化（含 tool_audit / scheduled_tasks）
 ├── model_manager.py           # 多 provider 模型管理（密钥只从环境变量读取）
 ├── mcp_manager.py             # 官方 MCP SDK 客户端桥接（独立事件循环/超时/重连）
@@ -284,6 +305,12 @@ make check      # 全部检查
 | `SCHEDULER_TASK_TIMEOUT_SECONDS` | 单次定时任务超时 | `600` |
 | `SCHEDULER_MIN_INTERVAL_SECONDS` | 最小运行间隔 | `60` |
 | `SCHEDULER_MAX_TASKS` | 任务数量上限 | `100` |
+| `BROWSER_ENABLED` | 是否启用浏览器工具 | `true` |
+| `BROWSER_HEADLESS` | 是否无头运行 Chromium | `true` |
+| `BROWSER_TIMEOUT_SECONDS` | 浏览器操作超时 | `20` |
+| `BROWSER_MAX_TEXT_CHARS` | 单次提取正文上限 | `8000` |
+| `BROWSER_SCREENSHOT_MAX_BYTES` | 截图文件大小上限 | `5242880` |
+| `BROWSER_PROXY` | 浏览器代理；留空复用环境变量 | 无 |
 
 完整列表见 `.env.example`。模型 provider 与模型列表在 `model_config.json` 中管理；**API Key 不会写入该文件**，只从环境变量读取。可参考 `model_config.example.json`。
 
@@ -314,11 +341,11 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：86 passed
+- `pytest`：92 passed
 - `ruff`：All checks passed
 - `mypy`：Success，12 source files
 
-测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用。
+测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、浏览器参数校验/私网拦截/交互审批。
 
 ---
 
@@ -329,7 +356,7 @@ uv run mypy
 | Phase 0 | ✅ 完成 | 安全止血与工程底座：路径安全、密钥治理、日志、测试、CI |
 | Phase 1 | ✅ 完成 | LangGraph 内核：真流式、审批恢复、checkpoint、上下文压缩、并行工具、子代理 |
 | Phase 2 | ✅ 完成 | 沙箱与工具策略：bubblewrap/进程隔离、命令白名单、SSRF、资源配额、审计 |
-| Phase 3 | 🚧 进行中 | 能力扩展：Memory/RAG（✅ 本地 BM25 + 记忆/知识 CRUD + UI）、定时任务（✅ 无人值守 + Web/API）、官方 MCP SDK（✅ v2 ClientSession + 自动重连）、Skills、浏览器 |
+| Phase 3 | ✅ 完成 | 能力扩展：Memory/RAG、定时任务、官方 MCP SDK、Skills、无头浏览器自动化 |
 | Phase 4 | 计划中 | 单机交付：本地数据目录、密钥加密、桌面壳/安装包、自动更新、可观测性 |
 | Phase 5 | 计划中 | 开源发布：LICENSE、文档、示例、CI Release |
 

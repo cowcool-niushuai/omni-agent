@@ -20,6 +20,7 @@ dependencies = [
     "tiktoken>=0.8",
     "aiosqlite>=0.20",
     "mcp>=2.0,<3",
+    "playwright>=1.55,<2",
 ]
 
 [dependency-groups]

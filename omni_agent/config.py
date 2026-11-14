@@ -76,6 +76,20 @@ class Settings(BaseSettings):
     web_fetch_allowed_ports: str = "80,443,8080,8443"
     allow_private_network: bool = False
 
+    # Phase 3: headless browser automation.
+    browser_enabled: bool = True
+    browser_headless: bool = True
+    browser_timeout_seconds: float = 20.0
+    browser_launch_timeout_seconds: float = 30.0
+    browser_max_text_chars: int = 8_000
+    browser_screenshot_max_bytes: int = 5 * 1024 * 1024
+    browser_viewport_width: int = 1_280
+    browser_viewport_height: int = 800
+    browser_user_agent: str = ""
+    browser_max_wait_ms: int = 10_000
+    browser_proxy: str = ""
+    browser_proxy_bypass: str = ""
+
     mcp_request_timeout_seconds: float = 15.0
     audit_enabled: bool = True
 

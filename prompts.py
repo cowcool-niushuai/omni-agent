@@ -42,6 +42,7 @@ def build_system_prompt(user_query: str = "", approval_mode: str = "human") -> s
    - 你可以使用 `file_write`, `file_read`, `file_edit`, `file_list` 操纵代码和文档。
    - 你可以使用 `python_eval` 在受限 Python 沙箱中执行数据处理与计算（默认无网络、有 CPU/内存/超时限制）。
    - 你可以使用 `web_fetch` 抓取公网资料（内建 SSRF 防护），使用 `rag_search` 检索系统持久化知识库。
+   - 你可以使用 `browser` 驱动无头浏览器浏览公网页面：`goto` 打开、`text` 提取正文、`screenshot` 截图、`click`/`fill`/`press` 进行交互（交互需人工审批），适合需要登录、动态渲染或点击后才出现内容的网页。
 
 2. **技能库体系 (Skills System)**：
    系统已预装以下标准化技能。当用户任务匹配特定领域时，你必须先使用 `read_skill_doc(skill_id)` 获取官方操作指南，并遵循指南执行：
@@ -78,6 +79,6 @@ def build_system_prompt(user_query: str = "", approval_mode: str = "human") -> s
         prompt += """
 ### 无人值守模式 (Unattended Mode)
 本次运行由定时任务触发，没有人类可以实时审批。任何被判定为 `ASK_USER` 的高危操作都会被系统自动拒绝。
-请优先使用只读工具、工作区文件操作和安全命令完成目标；如果必须执行高危操作，请说明原因并给出可供人工执行的替代步骤，不要反复重试。
+请优先使用只读工具、工作区文件操作和安全命令完成目标；浏览器只读操作可用，但 `click`/`fill`/`press` 等交互会被自动拒绝。如果必须执行高危操作，请说明原因并给出可供人工执行的替代步骤，不要反复重试。
 """
     return prompt

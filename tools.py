@@ -19,6 +19,7 @@ import httpx
 
 import database
 import skills_manager
+from browser import browser_manager
 from mcp_manager import mcp_manager
 from omni_agent.config import get_settings
 from omni_agent.security import PathSecurityError, safe_join
@@ -410,6 +411,34 @@ def tool_web_fetch(url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Browser automation
+# ---------------------------------------------------------------------------
+def tool_browser(
+    action: str,
+    url: str = "",
+    selector: str = "",
+    value: str = "",
+    key: str = "",
+    max_chars: int = 0,
+    full_page: bool = False,
+    filename: str = "",
+    milliseconds: int = 1000,
+) -> str:
+    arguments: dict[str, Any] = {
+        "action": action,
+        "url": url,
+        "selector": selector,
+        "value": value,
+        "key": key,
+        "max_chars": max_chars,
+        "full_page": full_page,
+        "filename": filename,
+        "milliseconds": milliseconds,
+    }
+    return browser_manager.run(action, arguments)
+
+
+# ---------------------------------------------------------------------------
 # Memory / knowledge
 # ---------------------------------------------------------------------------
 def tool_memory_save(
@@ -595,6 +624,45 @@ NATIVE_TOOLS_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "browser",
+            "description": "无头浏览器自动化。只读操作（goto/text/screenshot/back/forward/reload/wait/status/close）自动执行；click/fill/press 会修改网页状态，需要人工审批。仅允许公网 HTTP/HTTPS，内建 SSRF 防护；不支持执行 JavaScript。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "goto",
+                            "click",
+                            "fill",
+                            "press",
+                            "text",
+                            "screenshot",
+                            "wait",
+                            "back",
+                            "forward",
+                            "reload",
+                            "status",
+                            "close"
+                        ],
+                        "description": "浏览器操作。"
+                    },
+                    "url": {"type": "string", "description": "goto 的目标公网 URL。"},
+                    "selector": {"type": "string", "description": "CSS 选择器，例如 '#search' 或 'button[type=submit]'。"},
+                    "value": {"type": "string", "description": "fill 要填入的文本。"},
+                    "key": {"type": "string", "description": "press 要按下的键，例如 'Enter'。"},
+                    "max_chars": {"type": "integer", "description": "text 返回的最大字符数。"},
+                    "full_page": {"type": "boolean", "description": "screenshot 是否截取完整页面。"},
+                    "filename": {"type": "string", "description": "截图文件名（.png），保存到 workspace/browser/。"},
+                    "milliseconds": {"type": "integer", "description": "wait 等待的毫秒数。"}
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "rag_search",
             "description": "检索企业内部持久化知识库（RAG 增强），查询架构设计、规范要求或业务文档。",
             "parameters": {
@@ -719,6 +787,18 @@ def dispatch_tool(tool_name: str, arguments: dict[str, Any]) -> str:
         return tool_python_eval(arguments.get("code", ""))
     elif tool_name == "web_fetch":
         return tool_web_fetch(arguments.get("url", ""))
+    elif tool_name == "browser":
+        return tool_browser(
+            str(arguments.get("action", "")),
+            str(arguments.get("url", "")),
+            str(arguments.get("selector", "")),
+            str(arguments.get("value", "")),
+            str(arguments.get("key", "")),
+            int(arguments.get("max_chars", 0) or 0),
+            bool(arguments.get("full_page", False)),
+            str(arguments.get("filename", "")),
+            int(arguments.get("milliseconds", 1000) or 1000),
+        )
     elif tool_name == "rag_search":
         return tool_rag_search(
             arguments.get("query", ""),

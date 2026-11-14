@@ -18,6 +18,7 @@ import database
 import permission
 import skills_manager
 from agent_core import agent_core
+from browser import browser_manager
 from mcp_manager import mcp_manager
 from model_manager import model_manager
 from omni_agent.config import get_settings
@@ -42,6 +43,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await scheduler.stop()
+        await run_in_threadpool(browser_manager.stop)
         await agent_core.close()
         mcp_manager.stop_all()
         log.info("agent_runtime_closed")
@@ -103,6 +105,7 @@ async def health():
         "skills_count": len(skills_manager.list_skills()),
         "scheduler_running": scheduler.running,
         "scheduled_task_active": scheduler.active_task_id,
+        "browser_running": browser_manager.running,
     }
 
 # 2. Sessions API
@@ -638,6 +641,11 @@ async def api_audit(
 @app.get("/api/audit/stats")
 async def api_audit_stats(session_id: Optional[str] = None):
     return audit.audit_stats(session_id)
+
+
+@app.get("/api/browser/status")
+async def api_browser_status():
+    return await run_in_threadpool(browser_manager.status)
 
 
 @app.get("/api/security/policy")

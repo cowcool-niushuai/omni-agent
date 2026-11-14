@@ -179,6 +179,55 @@ def classify_permission(tool_name: str, arguments: dict[str, Any]) -> tuple[str,
             return PermissionRisk.DENY, f"网页抓取被 SSRF 策略阻止：{exc}"
         return PermissionRisk.ALLOW, "公网网页只读抓取已放行"
 
+    # 5b. Headless browser: navigation is read-only; interactions need approval.
+    if tool_name == "browser":
+        settings = get_settings()
+        if not settings.browser_enabled:
+            return PermissionRisk.DENY, "浏览器自动化已在配置中禁用"
+        action = str(arguments.get("action", "")).strip().lower()
+        supported = {
+            "goto",
+            "click",
+            "fill",
+            "press",
+            "text",
+            "screenshot",
+            "wait",
+            "back",
+            "forward",
+            "reload",
+            "status",
+            "close",
+        }
+        if action not in supported:
+            return PermissionRisk.DENY, f"不支持的浏览器操作: {action or '(空)'}"
+        if action == "goto":
+            try:
+                validate_url_static(
+                    str(arguments.get("url", "")),
+                    allowed_ports=settings.web_fetch_port_list,
+                    allow_private=settings.allow_private_network,
+                )
+            except UnsafeURLError as exc:
+                return PermissionRisk.DENY, f"浏览器导航被 SSRF 策略阻止：{exc}"
+            return PermissionRisk.ALLOW, "公网网页只读导航已放行"
+        if action in {"click", "fill", "press"}:
+            return (
+                PermissionRisk.ASK_USER,
+                "浏览器交互可能提交表单或改变网站状态，需要人工确认",
+            )
+        if action == "screenshot":
+            filename = str(arguments.get("filename", "")).strip()
+            if filename:
+                try:
+                    path = safe_join(_workspace_root() / "browser", filename)
+                except PathSecurityError as exc:
+                    return PermissionRisk.DENY, f"截图路径越权: {exc}"
+                if path.suffix.lower() != ".png":
+                    return PermissionRisk.DENY, "截图文件名必须以 .png 结尾"
+            return PermissionRisk.SAFE_EXEC, "浏览器截图写入工作区，允许记录审计"
+        return PermissionRisk.ALLOW, "浏览器只读操作已放行"
+
     # 6. MCP SQL Query check
     if tool_name == "mcp_sql_query":
         ok, reason = validate_sql_readonly(str(arguments.get("query", "")))
