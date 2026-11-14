@@ -64,6 +64,11 @@ class WebFetchArgs(_Args):
     url: str = Field(min_length=1)
 
 
+class WebSearchArgs(_Args):
+    query: str = Field(min_length=1, max_length=500)
+    max_results: int = Field(default=5, ge=1, le=10)
+
+
 class BrowserArgs(_Args):
     action: str = Field(min_length=1)
     url: str = ""
@@ -133,6 +138,7 @@ NATIVE_MODELS: dict[str, type[BaseModel]] = {
     "bash_run": BashRunArgs,
     "python_eval": PythonEvalArgs,
     "web_fetch": WebFetchArgs,
+    "web_search": WebSearchArgs,
     "browser": BrowserArgs,
     "memory_save": MemorySaveArgs,
     "memory_search": MemorySearchArgs,

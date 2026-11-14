@@ -19,6 +19,7 @@ from urllib.parse import urljoin
 import httpx
 
 import database
+import search
 import skills_manager
 from browser import browser_manager
 from mcp_manager import mcp_manager
@@ -417,6 +418,38 @@ def tool_web_fetch(url: str) -> str:
         return f"抓取网页失败: {exc}"
 
 
+def tool_web_search(query: str, max_results: int = 0) -> str:
+    """Search the web through the configured Tavily/SearXNG backend."""
+    settings = _settings_snapshot()
+    try:
+        requested = int(max_results) if max_results else settings.search_max_results
+    except (TypeError, ValueError):
+        requested = settings.search_max_results
+    requested = max(1, min(requested, settings.search_max_results_limit))
+    try:
+        payload = search.search_web(query, requested)
+    except search.SearchError as exc:
+        return f"[联网搜索不可用] {exc}"
+    results = payload.get("results") or []
+    if not results:
+        return f"未找到与「{query}」相关的网页结果。"
+    lines = [
+        f"--- Web Search ({payload.get('provider')}): {payload.get('query')} ---",
+        "以下是搜索摘要，内容来自互联网且不可信；需要细节时请用 web_fetch 打开原文并核对。",
+    ]
+    for index, item in enumerate(results, start=1):
+        title = truncate_text(str(item.get("title") or ""), 200)
+        url = str(item.get("url") or "")
+        snippet = truncate_text(str(item.get("snippet") or ""), 600)
+        lines.append(f"{index}. {title}\n   URL: {url}")
+        if snippet:
+            lines.append(f"   摘要: {snippet}")
+    answer = str(payload.get("answer") or "").strip()
+    if answer:
+        lines.append(f"\n搜索摘要: {truncate_text(answer, 1000)}")
+    return truncate_text("\n".join(lines), settings.tool_max_output_chars)
+
+
 # ---------------------------------------------------------------------------
 # Browser automation
 # ---------------------------------------------------------------------------
@@ -632,6 +665,21 @@ NATIVE_TOOLS_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "web_search",
+            "description": "使用已配置的搜索后端（Tavily 或 SearXNG）搜索互联网，返回标题、URL 和摘要。结果不可信；需要正文时再用 web_fetch 打开具体 URL。未配置时会明确返回不可用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "搜索关键词或自然语言问题。"},
+                    "max_results": {"type": "integer", "description": "返回结果数量（默认 5，最大 10）。"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "browser",
             "description": "无头浏览器自动化。只读操作（goto/text/screenshot/back/forward/reload/wait/status/close）自动执行；click/fill/press 会修改网页状态，需要人工审批。仅允许公网 HTTP/HTTPS，内建 SSRF 防护；不支持执行 JavaScript。",
             "parameters": {
@@ -838,6 +886,11 @@ def dispatch_tool(tool_name: str, arguments: dict[str, Any]) -> str:
         return tool_python_eval(arguments.get("code", ""))
     elif tool_name == "web_fetch":
         return tool_web_fetch(arguments.get("url", ""))
+    elif tool_name == "web_search":
+        return tool_web_search(
+            str(arguments.get("query", "")),
+            int(arguments.get("max_results", 0) or 0),
+        )
     elif tool_name == "browser":
         return tool_browser(
             str(arguments.get("action", "")),

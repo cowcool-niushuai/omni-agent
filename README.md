@@ -48,7 +48,8 @@ START -> agent -> (需要审批?) -> approval -> tools -> agent -> ... -> END
 
 - `file_list` / `file_read` / `file_write` / `file_edit`
 - `bash_run` / `python_eval`
-- `web_fetch`
+- `web_search`（Tavily / 自托管 SearXNG，返回可引用的搜索结果）
+- `web_fetch`（抓取指定 URL 的正文）
 - `browser`（无头浏览器：导航、读取、截图、点击/填写/按键）
 - `rag_search` / `read_skill_doc`
 - `spawn_subagent`（隔离子智能体）
@@ -361,6 +362,45 @@ GET /api/sessions/{session_id}/plan   # 当前持久计划与验证状态
 
 当前实现使用本地 hashed embedding，不是语义 embedding 模型；它适合离线和小型知识库。需要更强语义召回时，可在 `retrieval.py` 中替换为可配置的 embedding provider，接口无需变化。
 
+---
+
+### 18. 联网搜索：Tavily 与 SearXNG
+
+`web_search(query, max_results)` 是独立于本地知识库的联网检索工具。项目不内置搜索 Key，也不默认联网；未配置时会明确返回“联网搜索未启用”，不会编造结果。
+
+支持的搜索后端：
+
+- **Tavily**：托管服务，配置 `SEARCH_PROVIDER=tavily` + `SEARCH_API_KEY`，开箱即用
+- **SearXNG**：自托管元搜索，配置 `SEARCH_PROVIDER=searxng` + `SEARCH_BASE_URL`，适合本地/隐私部署；需要开启 JSON 输出
+
+推荐工作流：
+
+```text
+web_search -> 选择结果 -> web_fetch 读取正文 -> 综合回答并附来源 URL
+```
+
+安全边界：
+
+- 搜索服务地址同样经过 SSRF 校验；默认禁止私网、回环和链路本地地址
+- 自托管 SearXNG 位于本机或内网时，才设置 `SEARCH_ALLOW_PRIVATE_NETWORK=true`
+- 标题、摘要和网页正文都视为不可信数据，不能当作指令执行
+- 搜索关键词、结果 URL 和工具调用都会进入审计（密钥自动脱敏）
+- 回答应引用来源 URL；需要全文时用 `web_fetch` 再抓取，不能只凭搜索摘要下结论
+
+配置示例：
+
+```dotenv
+# Tavily
+SEARCH_PROVIDER=tavily
+SEARCH_API_KEY=tvly-...
+
+# 或自托管 SearXNG
+# SEARCH_PROVIDER=searxng
+# SEARCH_BASE_URL=http://127.0.0.1:8080
+```
+
+不配置任何搜索后端时，Agent 仍可使用本地知识库、文件、命令和浏览器；只是不会声称自己完成了联网搜索。
+
 ## 架构
 
 ```text
@@ -417,6 +457,7 @@ omni-agent/
 ├── tools.py                   # 原生工具与 MCP 工具分发
 ├── prompts.py                 # 动态系统提示词（稳定+相关记忆注入）
 ├── retrieval.py               # BM25 + 本地向量混合检索（记忆/知识库）
+├── search.py                  # 联网搜索后端（Tavily / SearXNG，SSRF 校验）
 ├── scheduler.py               # 定时任务调度器（无人值守 auto_reject）
 ├── browser.py                 # Playwright 无头浏览器（SSRF/审批/截图沙箱）
 ├── database.py                # SQLite 持久化（含 tool_audit / scheduled_tasks）
@@ -495,6 +536,15 @@ make check      # 全部检查
 | `DEEPSEEK_API_KEY` | DeepSeek API Key | 无 |
 | `OPENAI_API_KEY` | OpenAI API Key | 无 |
 | `ANTHROPIC_API_KEY` | Anthropic API Key | 无 |
+| `SEARCH_PROVIDER` | 联网搜索后端：`disabled` / `tavily` / `searxng` | `disabled` |
+| `SEARCH_API_KEY` | Tavily API Key | 无 |
+| `SEARCH_BASE_URL` | Tavily 自定义地址或 SearXNG 地址 | 无 |
+| `SEARCH_MAX_RESULTS` | 默认返回结果数 | `5` |
+| `SEARCH_MAX_RESULTS_LIMIT` | 单次搜索最大结果数 | `10` |
+| `SEARCH_MAX_QUERY_CHARS` | 搜索关键词最大长度 | `500` |
+| `SEARCH_TIMEOUT_SECONDS` | 搜索请求超时（秒） | `10` |
+| `SEARCH_LANGUAGE` | SearXNG 搜索语言 | `zh-CN` |
+| `SEARCH_ALLOW_PRIVATE_NETWORK` | 允许搜索后端位于私网（仅可信自托管） | `false` |
 | `HOST` | 监听地址 | `127.0.0.1` |
 | `PORT` | 监听端口 | `8001` |
 | `OMNI_API_TOKEN` | 可选单管理员 API Token（兼容模式）；留空关闭 | 无 |
@@ -563,6 +613,7 @@ make check      # 全部检查
 - 文件路径统一经过 `safe_join`，阻止 `../` 与符号链接逃逸
 - 命令默认在 bubblewrap 沙箱中执行，无 shell、默认无网络、只写工作区
 - `web_fetch` 拒绝私网、回环、链路本地与云元数据地址
+- `web_search` 的搜索服务地址同样经过 SSRF 校验；只有可信自托管 SearXNG 才应开启 `SEARCH_ALLOW_PRIVATE_NETWORK`
 - 高危命令通过审批暂停，但 `process` 后端不是强安全边界；不要把不可信任务直接放到生产主机上运行
 - 审计表会记录参数摘要，已自动脱敏密钥字段；仍建议不要在工作区存放生产密钥
 

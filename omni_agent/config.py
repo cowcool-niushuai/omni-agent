@@ -105,6 +105,17 @@ class Settings(BaseSettings):
     web_fetch_allowed_ports: str = "80,443,8080,8443"
     allow_private_network: bool = False
 
+    # Web search: disabled by default; operators choose Tavily or SearXNG.
+    search_provider: str = "disabled"
+    search_api_key: str = ""
+    search_base_url: str = ""
+    search_max_results: int = 5
+    search_max_results_limit: int = 10
+    search_max_query_chars: int = 500
+    search_timeout_seconds: float = 10.0
+    search_language: str = "zh-CN"
+    search_allow_private_network: bool = False
+
     # Phase 3: headless browser automation.
     browser_enabled: bool = True
     browser_headless: bool = True
