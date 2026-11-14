@@ -30,6 +30,21 @@ def test_session_list_enriches_and_searches(isolated_db: Path) -> None:
     assert [item["id"] for item in found] == ["s1"]
 
 
+def test_session_model_is_persisted_and_listed(isolated_db: Path) -> None:
+    created = database.create_session(
+        "s_model", "模型会话", model="deepseek/deepseek-v4-pro"
+    )
+    assert created is not None
+    assert created["model"] == "deepseek/deepseek-v4-pro"
+
+    updated = database.set_session_model("s_model", "deepseek/deepseek-flash")
+    assert updated is not None
+    assert updated["model"] == "deepseek/deepseek-flash"
+
+    sessions = database.list_sessions()
+    assert sessions[0]["model"] == "deepseek/deepseek-flash"
+
+
 def test_auto_title_only_for_default_title(isolated_db: Path) -> None:
     database.create_session("s1")
     database.save_message("s1", "user", "帮我写一个 Python 排序脚本并运行测试")

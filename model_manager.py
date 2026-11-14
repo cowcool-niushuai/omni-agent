@@ -437,6 +437,24 @@ class ModelManager:
             include_secret=include_secret,
         )
 
+    def get_model_info(
+        self, selector: str | None = None, *, include_secret: bool = False
+    ) -> dict[str, Any]:
+        """Return one model by ``id`` or ``provider/id``; active when omitted."""
+        if not selector:
+            return self.get_active_model_info(include_secret=include_secret)
+        try:
+            provider_key, provider, model_id, model = self._find_model(selector)
+        except KeyError as exc:
+            raise ValueError(str(exc)) from exc
+        return self._info(
+            provider_key,
+            provider,
+            model_id,
+            model,
+            include_secret=include_secret,
+        )
+
     def set_active_model(self, model_selector: str) -> None:
         provider_key, _, model_id, _ = self._find_model(model_selector)
         self.config["active_model_id"] = model_id
@@ -655,8 +673,8 @@ class ModelManager:
     # ------------------------------------------------------------------
     # runtime clients
     # ------------------------------------------------------------------
-    def get_client_and_model(self) -> tuple[OpenAI, str]:
-        info = self.get_active_model_info(include_secret=True)
+    def get_client_and_model(self, model_selector: str | None = None) -> tuple[OpenAI, str]:
+        info = self.get_model_info(model_selector, include_secret=True)
         if info.get("adapter") == "anthropic":
             raise RuntimeError(
                 f"Provider '{info.get('provider_name')}' uses the native "
@@ -678,8 +696,8 @@ class ModelManager:
         )
         return client, str(info.get("model_name") or "deepseek-chat")
 
-    def get_async_client_and_model(self) -> tuple[Any, str]:
-        info = self.get_active_model_info(include_secret=True)
+    def get_async_client_and_model(self, model_selector: str | None = None) -> tuple[Any, str]:
+        info = self.get_model_info(model_selector, include_secret=True)
         provider_key = str(info.get("provider_key", ""))
         provider = self.config.get("providers", {}).get(provider_key)
         if not isinstance(provider, dict):

@@ -47,6 +47,11 @@ def test_init_status_stage_and_commit(tmp_path: Path) -> None:
     assert clean["clean"] is True
     assert clean["files"] == []
 
+    branches = git_service.branches(repo)
+    current = next(item for item in branches["branches"] if item["current"])
+    assert current["name"] == clean["branch"]
+    assert current["remote"] is False
+
 
 def test_workspace_inside_parent_repo_is_not_a_repo(tmp_path: Path) -> None:
     parent = tmp_path / "parent"

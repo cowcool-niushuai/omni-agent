@@ -549,6 +549,7 @@ async def api_system_info():
 # 2. Sessions API
 class SessionCreate(BaseModel):
     title: Optional[str] = "新对话任务"
+    model: Optional[str] = None
 
 @app.post("/api/sessions")
 async def api_create_session(body: SessionCreate):
@@ -561,6 +562,7 @@ async def api_create_session(body: SessionCreate):
         body.title or "新对话任务",
         owner_id=ctx.user_id,
         project_id=ctx.project_id,
+        model=body.model,
     )
     return session or {"id": s_id, "title": body.title, "project_id": ctx.project_id}
 
@@ -573,7 +575,8 @@ async def api_list_sessions(
     return database.list_sessions(query=q, limit=limit, offset=offset)
 
 class SessionUpdateRequest(BaseModel):
-    title: str
+    title: Optional[str] = None
+    model: Optional[str] = None
 
 @app.get("/api/sessions/{session_id}")
 async def api_get_session(session_id: str):
@@ -581,14 +584,22 @@ async def api_get_session(session_id: str):
     return database.get_session(session_id)
 
 @app.patch("/api/sessions/{session_id}")
-async def api_rename_session(session_id: str, body: SessionUpdateRequest):
+async def api_update_session(session_id: str, body: SessionUpdateRequest):
     _require_write()
     _require_scope("sessions:write")
     _require_session(session_id)
-    try:
-        session = database.rename_session(session_id, body.title)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if body.model is not None:
+        try:
+            normalized = str(model_manager.get_model_info(body.model).get("ref") or body.model)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        database.set_session_model(session_id, normalized)
+    if body.title is not None:
+        try:
+            session = database.rename_session(session_id, body.title)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session = database.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="会话不存在")
     return session
@@ -707,6 +718,7 @@ class ChatRequest(BaseModel):
     session_id: str
     message: str
     attachments: List[dict] = []
+    model: Optional[str] = None
 
 
 async def _sse_events(events: AsyncIterator[dict]) -> AsyncIterator[str]:
@@ -743,6 +755,7 @@ async def api_chat_stream(body: ChatRequest):
             body.message,
             attachments=body.attachments,
             tenant=ctx,
+            model_ref=body.model or "",
         )
     )
 

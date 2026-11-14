@@ -408,22 +408,23 @@ def branches(workspace: Path, relative: str = "") -> Dict[str, Any]:
     proc = _run(
         [
             "for-each-ref",
-            "--format=%(refname:short)%x1f%(upstream:short)%x1f%(objectname:short)",
+            "--format=%(refname:short)%09%(upstream:short)%09%(objectname:short)%09%(refname)",
             "refs/heads",
             "refs/remotes",
         ],
         top,
         check=False,
     )
-    items: List[Dict[str, str]] = []
+    items: List[Dict[str, Any]] = []
     for line in proc.stdout.splitlines():
-        parts = line.split("\x1f")
-        if len(parts) == 3 and parts[0]:
+        parts = line.split("\t")
+        if len(parts) == 4 and parts[0]:
             items.append(
                 {
                     "name": parts[0],
                     "upstream": parts[1],
                     "commit": parts[2],
+                    "remote": parts[3].startswith("refs/remotes/"),
                     "current": parts[0] == current,
                 }
             )

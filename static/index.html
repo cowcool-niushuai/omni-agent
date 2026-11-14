@@ -1319,6 +1319,8 @@
 
     let currentSessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
     let savedSessionIds = new Set();
+    let currentSessionModel = '';
+    let sessionModelById = new Map();
     const ATTACHMENT_MAX_FILES = 5;
     const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
     let pendingAttachments = [];
@@ -1754,7 +1756,7 @@
         const data = await res.json();
         const recent = data.recent || {};
         const total = data.total || {};
-        const limit = Number(activeModelInfo?.limit?.context || 0);
+        const limit = Number(currentModelInfo()?.limit?.context || 0);
         const used = Number(recent.input_tokens || 0);
         const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
         bar.style.width = `${pct.toFixed(1)}%`;
@@ -1782,14 +1784,32 @@
     let allModels = [];
     let activeModelInfo = null;
 
+    function modelInfoByRef(ref) {
+      return allModels.find(item => item.ref === ref || item.id === ref) || null;
+    }
+
+    function currentModelInfo() {
+      return modelInfoByRef(currentSessionModel) || activeModelInfo || null;
+    }
+
+    function renderSessionModelBadge() {
+      const chat = document.getElementById('chat-model-label');
+      const info = currentModelInfo();
+      if (!chat || !info) return;
+      chat.innerText = String(info.label || info.model_name || info.ref || '模型').split(' ')[0];
+      const button = document.getElementById('chat-model-badge');
+      if (button) {
+        button.title = `当前会话模型：${info.label || info.ref}${currentSessionModel ? '（仅本会话）' : '（跟随全局）'}`;
+      }
+    }
+
     function setActiveModelBadges(label) {
       const short = String(label || 'DeepSeek').split(' ')[0];
       const active = document.getElementById('active-model-label');
       const sidebar = document.getElementById('sidebar-model-badge');
-      const chat = document.getElementById('chat-model-label');
       if (active) active.innerText = short;
       if (sidebar) sidebar.innerText = short;
-      if (chat) chat.innerText = short;
+      renderSessionModelBadge();
     }
 
     async function loadModels() {
@@ -1800,6 +1820,7 @@
         activeModelInfo = data.active || null;
         const active = data.active;
         if (active) setActiveModelBadges(active.label);
+        renderSessionModelBadge();
         renderModelDropdown();
         refreshComposerUsage();
       } catch(e) {}
@@ -1817,6 +1838,10 @@
         groups.get(key).push(m);
       });
       containers.forEach(container => {
+        const composer = container.id === 'composer-model-dropdown-items';
+        const selectedRef = composer
+          ? (currentSessionModel || activeModelInfo?.ref || '')
+          : (activeModelInfo?.ref || '');
         container.innerHTML = '';
         groups.forEach((models, providerName) => {
           const header = document.createElement('div');
@@ -1831,11 +1856,12 @@
                 <span class="font-medium text-[#15201D] truncate">${m.label}</span>
                 <span class="text-[10px] text-[#7A8C87] font-mono truncate">${m.ref || m.id} · ${m.adapter || 'openai-compatible'}</span>
               </div>
-              ${m.is_active ? '<i data-lucide="check" class="w-3.5 h-3.5 text-[#267F68] shrink-0"></i>' : ''}
+              ${(m.ref || m.id) === selectedRef ? '<i data-lucide="check" class="w-3.5 h-3.5 text-[#267F68] shrink-0"></i>' : ''}
             `;
             item.onclick = (e) => {
               e.stopPropagation();
-              selectModel(m.ref || m.id);
+              if (composer) selectSessionModel(m.ref || m.id);
+              else selectModel(m.ref || m.id);
             };
             container.appendChild(item);
           });
@@ -1903,6 +1929,34 @@
       } catch(e) {
         alert("切换模型失败: " + e);
       }
+    }
+
+    async function selectSessionModel(modelRef) {
+      const info = modelInfoByRef(modelRef);
+      if (!info) return toast('模型不存在', 'error');
+      currentSessionModel = info.ref || modelRef;
+      sessionModelById.set(currentSessionId, currentSessionModel);
+      renderSessionModelBadge();
+      renderModelDropdown();
+      const dropdown = document.getElementById('composer-model-dropdown');
+      if (dropdown) dropdown.classList.add('hidden');
+      if (savedSessionIds.has(currentSessionId)) {
+        try {
+          const res = await fetch(`/api/sessions/${encodeURIComponent(currentSessionId)}`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ model: currentSessionModel }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.detail || '保存会话模型失败');
+          }
+        } catch (err) {
+          toast(err.message || '保存会话模型失败', 'error');
+        }
+      }
+      refreshComposerUsage();
+      toast(`本会话已切换到 ${info.label || info.ref}`, 'success');
     }
 
     function updateModalActiveModel() {
@@ -2699,9 +2753,22 @@
       const remoteValue = status.origin || '';
       const remoteInput = document.getElementById('git-remote-url');
       if (remoteInput && !remoteInput.value) remoteInput.value = remoteValue;
+      let branchList = [];
+      try {
+        const data = await gitJson(`/api/git/branches?repo=${encodeURIComponent(selectedGitRepo)}`);
+        branchList = Array.isArray(data.branches) ? data.branches : [];
+      } catch (err) {}
+      const localBranches = branchList.filter(item => !item.remote);
+      const branchOptions = localBranches.length
+        ? localBranches.map(item => `<option value="${escapeHtml(item.name)}" ${item.name === status.branch ? 'selected' : ''}>${escapeHtml(item.name)}${item.current ? ' · 当前' : ''}</option>`).join('')
+        : `<option value="${escapeHtml(status.branch || '')}">${escapeHtml(status.branch || '未命名分支')}</option>`;
       box.innerHTML = `
         <div class="flex flex-wrap items-center gap-2 mb-3">
-          <span class="text-xs font-bold text-[#15201D] flex items-center gap-1.5"><i data-lucide="git-branch" class="w-3.5 h-3.5"></i>${escapeHtml(status.branch || '未命名分支')}</span>
+          <span class="text-xs font-bold text-[#15201D] flex items-center gap-1.5"><i data-lucide="git-branch" class="w-3.5 h-3.5"></i></span>
+          <select id="git-branch-select" onchange="switchGitBranch(this.value)" class="h-7 rounded-lg border border-[#D8E5E1] bg-white px-2 text-[11px] font-mono text-[#15201D]">
+            ${branchOptions}
+          </select>
+          <button onclick="createGitBranchPrompt()" class="h-7 px-2 rounded-lg border border-[#D8E5E1] bg-white text-[10px] font-semibold text-[#4A5568]" title="创建并切换到新分支">+ 分支</button>
           ${badge}
           ${status.upstream ? `<span class="text-[10px] text-[#7A8C87] font-mono">${escapeHtml(status.upstream)}</span>` : ''}
           ${ahead ? `<span class="text-[10px] text-[#2F7A55]">↑${ahead}</span>` : ''}
@@ -2727,6 +2794,34 @@
         await gitJson('/api/git/init', { method: 'POST', body: gitRepoPayload() });
         showGitResult('Git 仓库已初始化');
         await loadGitRepos();
+      } catch (err) { showGitResult(err.message, false); }
+    }
+
+    async function switchGitBranch(branch) {
+      if (!branch || branch === gitStatusCache?.branch) return;
+      try {
+        await gitJson('/api/git/checkout', {
+          method: 'POST',
+          body: gitRepoPayload({ branch, create: false }),
+        });
+        showGitResult(`已切换到分支 ${branch}`);
+        await loadGitStatus();
+      } catch (err) {
+        showGitResult(err.message, false);
+        await loadGitStatus();
+      }
+    }
+
+    async function createGitBranchPrompt() {
+      const branch = window.prompt('新分支名称（会从当前分支创建并切换）');
+      if (!branch || !branch.trim()) return;
+      try {
+        await gitJson('/api/git/checkout', {
+          method: 'POST',
+          body: gitRepoPayload({ branch: branch.trim(), create: true }),
+        });
+        showGitResult(`已创建并切换到分支 ${branch.trim()}`);
+        await loadGitStatus();
       } catch (err) { showGitResult(err.message, false); }
     }
 
@@ -3363,7 +3458,9 @@
         return;
       }
       currentSessionId = sessionId;
+      currentSessionModel = sessionModelById.get(sessionId) || '';
       pendingPermission = false;
+      renderSessionModelBadge();
       setCurrentSessionHeader(sessionId, title);
       const chatStream = document.getElementById('chat-stream');
       chatStream.innerHTML = '';
@@ -3451,6 +3548,7 @@
         const res = await fetch(url);
         const list = await res.json();
         savedSessionIds = new Set(list.map(item => item.id));
+        sessionModelById = new Map(list.map(item => [item.id, item.model || '']));
         const container = document.getElementById('session-list');
         container.innerHTML = '';
         const emptyCount = query ? 0 : list.filter(s => !s.message_count && s.id !== currentSessionId).length;
@@ -3513,7 +3611,11 @@
           container.appendChild(item);
         });
         const activeSession = list.find(s => s.id === currentSessionId);
-        if (activeSession) setCurrentSessionHeader(activeSession.id, activeSession.title);
+        if (activeSession) {
+          currentSessionModel = activeSession.model || '';
+          setCurrentSessionHeader(activeSession.id, activeSession.title);
+          renderSessionModelBadge();
+        }
         if (savedSessionIds.has(currentSessionId)) refreshComposerUsage();
         lucide.createIcons();
       } catch(e) {}
@@ -3562,8 +3664,10 @@
         return;
       }
       currentSessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
+      currentSessionModel = '';
       pendingPermission = false;
       hidePlan();
+      renderSessionModelBadge();
       setCurrentSessionHeader(currentSessionId, '新对话');
       resetConversationView();
       loadSessions();
@@ -4233,7 +4337,8 @@
         await streamSSE('/api/chat/stream', {
           session_id: currentSessionId,
           message: promptText,
-          attachments: attachmentFiles
+          attachments: attachmentFiles,
+          model: currentSessionModel || undefined
         }, ctx);
       } catch (err) {
         console.error(err);

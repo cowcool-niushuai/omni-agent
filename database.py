@@ -275,6 +275,7 @@ def init_db():
     for table, column, definition in (
         ("sessions", "owner_id", "TEXT"),
         ("sessions", "project_id", "TEXT"),
+        ("sessions", "model", "TEXT"),
         ("memories", "project_id", "TEXT"),
         ("knowledge_docs", "project_id", "TEXT"),
         ("permission_requests", "project_id", "TEXT"),
@@ -1207,16 +1208,19 @@ def create_session(
     *,
     owner_id: Optional[str] = None,
     project_id: Optional[str] = None,
+    model: Optional[str] = None,
 ):
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO sessions (id, title, owner_id, project_id) VALUES (?, ?, ?, ?)",
+        "INSERT INTO sessions (id, title, owner_id, project_id, model) "
+        "VALUES (?, ?, ?, ?, ?)",
         (
             session_id,
             title,
             _user_scope(owner_id),
             _project_scope(project_id),
+            model or None,
         ),
     )
     conn.commit()
@@ -1230,22 +1234,36 @@ def ensure_session(
     *,
     owner_id: Optional[str] = None,
     project_id: Optional[str] = None,
+    model: Optional[str] = None,
 ):
     """Create the session lazily; safe to call before every turn."""
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT OR IGNORE INTO sessions (id, title, owner_id, project_id) "
-        "VALUES (?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO sessions (id, title, owner_id, project_id, model) "
+        "VALUES (?, ?, ?, ?, ?)",
         (
             session_id,
             title,
             _user_scope(owner_id),
             _project_scope(project_id),
+            model or None,
         ),
     )
     conn.commit()
     conn.close()
+
+
+def set_session_model(session_id: str, model: Optional[str]) -> Optional[Dict[str, Any]]:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE sessions SET model = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (model or None, session_id),
+    )
+    conn.commit()
+    conn.close()
+    return get_session(session_id)
 
 
 def _session_columns() -> str:

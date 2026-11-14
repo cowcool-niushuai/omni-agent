@@ -283,6 +283,7 @@ Web UI 的模型配置弹窗已支持厂商预设、适配器选择、连接测�
 - 清空消息会保留会话壳，但清除上下文与运行痕迹
 - 支持导出为 Markdown
 - 首次用户消息会自动生成会话标题
+- 每个会话可以独立选择模型；输入框模型下拉只影响当前对话，不改变全局默认模型
 - 助手回答渲染经过 DOMPurify 清洗，降低 Markdown XSS 风险
 - Tailwind、Lucide、Marked、DOMPurify、Highlight.js 全部本地化，断网环境也能正常打开控制台
 
@@ -291,7 +292,7 @@ Web UI 的模型配置弹窗已支持厂商预设、适配器选择、连接测�
 ```text
 GET    /api/sessions?q=&limit=&offset=
 GET    /api/sessions/{id}
-PATCH  /api/sessions/{id}
+PATCH  /api/sessions/{id}          # {title?, model?}
 DELETE /api/sessions/{id}
 DELETE /api/sessions/{id}/messages
 GET    /api/sessions/{id}/export
@@ -581,6 +582,7 @@ Agent 会把附件内容视为不可信数据，需要时通过 `file_read`、`p
 - Excel `.xlsx` / `.xlsm`：读取共享字符串、工作表名称和单元格内容
 - PowerPoint `.pptx`：按页读取文本框文字
 - HTML 与常见文本格式：去除脚本/样式后提取正文
+- 解析结果按文件路径、修改时间和大小做进程内缓存，重复读取同一份大文档不会反复解析
 
 Agent 在遇到 PDF/Word/Excel/PPT 附件时会先调用：
 
@@ -845,7 +847,7 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：173 passed
+- `pytest`：174 passed
 - `ruff`：All checks passed
 - `mypy`：Success，15 source files
 

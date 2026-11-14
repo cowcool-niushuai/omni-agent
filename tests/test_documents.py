@@ -66,6 +66,11 @@ def test_docx_extraction(tmp_path: Path) -> None:
     assert "项目周报" in result["text"]
     assert "完成文档解析" in result["text"]
 
+    cached = documents.read_document(path)
+    assert cached["text"] == result["text"]
+    key = (str(path.resolve()), path.stat().st_mtime_ns, path.stat().st_size, 0)
+    assert key in documents._CACHE
+
 
 def test_xlsx_extraction_preserves_sheet_and_cells(tmp_path: Path) -> None:
     path = tmp_path / "members.xlsx"

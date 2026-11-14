@@ -7,10 +7,9 @@ formats are ZIP archives, so their XML can be read with the standard library.
 
 PDF extraction prefers the system ``pdftotext`` utility (which understands
 compressed streams, encodings and CJK fonts).  If it is unavailable, a small
-fallback parser handles simple text PDFs.  Image OCR is deliberately not
-implemented here: images are sent to a vision-capable model by the chat
-runtime, which is more accurate than a local OCR binary and works for the
-packaged desktop app.
+fallback parser handles simple text PDFs.  Images are sent to a vision-capable
+model by the chat runtime; when ``tesseract`` is installed locally, image
+documents can also be OCR'd here.
 """
 
 from __future__ import annotations
@@ -343,11 +342,32 @@ def _ocr_image(path: Path) -> Dict[str, Any]:
     )
 
 
+_CACHE: Dict[tuple[str, int, int, int], Dict[str, Any]] = {}
+_MAX_CACHE_ENTRIES = 32
+
+
 def read_document(path: Path, max_chars: int | None = None) -> Dict[str, Any]:
-    """Extract text from a supported document.
+    """Extract text from a supported document, memoizing by mtime and size.
 
     The caller is responsible for path containment and existence checks.
     """
+    path = Path(path)
+    try:
+        stat = path.stat()
+    except OSError:
+        return _read_document_uncached(path, max_chars)
+    key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size, int(max_chars or 0))
+    cached = _CACHE.get(key)
+    if cached is not None:
+        return dict(cached)
+    result = _read_document_uncached(path, max_chars)
+    if len(_CACHE) >= _MAX_CACHE_ENTRIES:
+        _CACHE.pop(next(iter(_CACHE)))
+    _CACHE[key] = result
+    return dict(result)
+
+
+def _read_document_uncached(path: Path, max_chars: int | None = None) -> Dict[str, Any]:
     path = Path(path)
     if not path.exists() or not path.is_file():
         raise DocumentError(f"文件不存在: {path.name}")

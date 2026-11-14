@@ -32,6 +32,7 @@ class OmniAgentCore:
         attachments: list[dict[str, Any]] | None = None,
         approval_mode: str = "human",
         tenant: tenancy.TenantContext | None = None,
+        model_ref: str = "",
     ) -> AsyncGenerator[dict[str, Any], None]:
         async for event in self.runtime.run_react_stream(
             session_id,
@@ -40,6 +41,7 @@ class OmniAgentCore:
             attachments=attachments,
             approval_mode=approval_mode,
             tenant=tenant,
+            model_ref=model_ref,
         ):
             yield event
 

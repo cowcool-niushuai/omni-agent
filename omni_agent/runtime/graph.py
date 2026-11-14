@@ -76,6 +76,7 @@ class AgentState(TypedDict, total=False):
     team_role: str
     scopes: list[str]
     permission_mode: str
+    model_ref: str
     plan: dict[str, Any] | None
     verification_attempts: int
     verification_status: str
@@ -130,6 +131,7 @@ class AgentRuntime:
         self._client_factory: ClientFactory = (
             client_factory or model_manager.get_async_client_and_model
         )
+        self._default_client_factory = client_factory is None
         self._checkpointer_cm: Any = None
         self._checkpointer: Any = None
         self._graph: Any = None
@@ -246,17 +248,27 @@ class AgentRuntime:
         tenancy.set_context(context)
         return context
 
+    def _client_for(self, model_ref: str = "") -> tuple[Any, str]:
+        if self._default_client_factory and model_ref:
+            return model_manager.get_async_client_and_model(model_ref)
+        return self._client_factory()
+
     def _build_user_content(
         self,
         context: tenancy.TenantContext,
         user_message: str,
         attachments: list[dict[str, Any]] | None,
+        model_ref: str = "",
     ) -> str | list[dict[str, Any]]:
         """Attach validated local images as multimodal content blocks."""
         if not attachments:
             return user_message
 
-        profile = model_manager.get_active_model_info()
+        profile = (
+            model_manager.get_model_info(model_ref)
+            if model_ref
+            else model_manager.get_active_model_info()
+        )
         capabilities = profile.get("capabilities") or {}
         label = f"{profile.get('label', '')} {profile.get('model_name', '')}".lower()
         supports_vision = bool(
@@ -327,7 +339,7 @@ class AgentRuntime:
                 "final_answer": text,
             }
 
-        client, model_name = self._client_factory()
+        client, model_name = self._client_for(str(state.get("model_ref") or ""))
         messages = list(state.get("messages") or [])
         summary, summary_upto, dropped = await maybe_compact(
             messages=messages,
@@ -1019,7 +1031,8 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
                 "summary_chars": 0,
                 "message": "当前会话没有可压缩的历史消息。",
             }
-        client, model_name = self._client_factory()
+        session_model = str((database.get_session(session_id) or {}).get("model") or "")
+        client, model_name = self._client_for(session_model)
         summary, summary_upto, dropped = await maybe_compact(
             messages=messages,
             summary=values.get("summary"),
@@ -1070,6 +1083,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         attachments: list[dict[str, Any]] | None = None,
         approval_mode: str = "human",
         tenant: tenancy.TenantContext | None = None,
+        model_ref: str = "",
     ) -> AsyncGenerator[dict[str, Any], None]:
         async for event in self.run_stream(
             session_id,
@@ -1078,6 +1092,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
             attachments=attachments,
             approval_mode=approval_mode,
             tenant=tenant,
+            model_ref=model_ref,
         ):
             yield event
 
@@ -1090,6 +1105,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         attachments: list[dict[str, Any]] | None = None,
         approval_mode: str = "human",
         tenant: tenancy.TenantContext | None = None,
+        model_ref: str = "",
     ) -> AsyncGenerator[dict[str, Any], None]:
         if session_id in self._active_sessions:
             yield {
@@ -1106,6 +1122,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
                 attachments=attachments,
                 approval_mode=approval_mode,
                 tenant=tenant,
+                model_ref=model_ref,
             ):
                 yield event
         finally:
@@ -1120,13 +1137,29 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         attachments: list[dict[str, Any]] | None = None,
         approval_mode: str = "human",
         tenant: tenancy.TenantContext | None = None,
+        model_ref: str = "",
     ) -> AsyncGenerator[dict[str, Any], None]:
         context = tenant or tenancy.get_context()
         database.ensure_session(
             session_id, owner_id=context.user_id, project_id=context.project_id
         )
+        session = database.get_session(session_id) or {}
+        selected_model = str(model_ref or session.get("model") or "").strip()
+        if model_ref:
+            try:
+                selected_model = str(
+                    model_manager.get_model_info(model_ref).get("ref") or model_ref
+                )
+            except ValueError as exc:
+                yield {"type": "error", "message": f"模型不可用：{exc}"}
+                return
+            database.set_session_model(session_id, selected_model)
         user_content = await asyncio.to_thread(
-            self._build_user_content, context, user_message, attachments
+            self._build_user_content,
+            context,
+            user_message,
+            attachments,
+            selected_model,
         )
         database.save_message(session_id, "user", user_message)
         database.maybe_auto_title(session_id, user_message)
@@ -1198,6 +1231,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
                 "team_role": context.team_role,
                 "scopes": sorted(context.scopes),
                 "permission_mode": context.permission_mode,
+                "model_ref": selected_model,
             }
         )
 
