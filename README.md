@@ -5,7 +5,7 @@
 
 OmniAgent 是一个**单机单用户**的通用智能体应用：它不只回答问题，还能在工作区里读写文件、执行命令、运行 Python、调用 MCP 工具，并在高危操作前暂停，等待你批准后继续执行。
 
-项目当前已完成 **Phase 3（能力扩展）**：Phase 2 的沙箱、命令策略、SSRF 与审计，以及 Phase 3 的本地 Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配与无头浏览器自动化均已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
+项目当前已完成 **Phase 3（能力扩展）**，并完成 **Phase 4.0 生产化基础**：Phase 2 的沙箱、命令策略、SSRF 与审计，Phase 3 的本地 Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配与无头浏览器自动化，以及会话生命周期、可选 API Token、系统信息和前端交互完善均已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
 
 ---
 
@@ -190,6 +190,48 @@ Web UI 的模型配置弹窗已支持厂商预设、适配器选择、连接测�
 
 > Google Gemini 目前使用其 OpenAI 兼容端点；Anthropic 使用原生适配器。OAuth、ChatGPT/Copilot 登录和 models.dev 全量目录不在当前范围内。
 
+### 14. 会话管理与生产化基础
+
+对话记录不再只是“只增不减”的日志：
+
+- 会话列表支持按标题、ID 和消息内容搜索
+- 展示消息数、最后一条消息和相对时间
+- 支持重命名、删除、清空消息
+- 删除会话会同时清理消息、审批请求、子代理任务、审计记录和 LangGraph checkpoint
+- 清空消息会保留会话壳，但清除上下文与运行痕迹
+- 支持导出为 Markdown
+- 首次用户消息会自动生成会话标题
+- 助手回答渲染经过 DOMPurify 清洗，降低 Markdown XSS 风险
+- Tailwind、Lucide、Marked、DOMPurify、Highlight.js 全部本地化，断网环境也能正常打开控制台
+
+相关 API：
+
+```text
+GET    /api/sessions?q=&limit=&offset=
+GET    /api/sessions/{id}
+PATCH  /api/sessions/{id}
+DELETE /api/sessions/{id}
+DELETE /api/sessions/{id}/messages
+GET    /api/sessions/{id}/export
+GET    /api/system/info
+```
+
+可选单管理员 API Token：
+
+```bash
+OMNI_API_TOKEN=<long-random-token>
+```
+
+启用后，所有 `/api/*` 请求都需要：
+
+```text
+Authorization: Bearer <token>
+```
+
+`/health` 和 `/api/auth/status` 保持公开，分别用于探针和登录状态检查。Web UI 会在需要时弹出令牌输入框，令牌只保存在本机浏览器 `localStorage`。
+
+企业级差距与后续路线见 [`docs/ENTERPRISE_ROADMAP.md`](docs/ENTERPRISE_ROADMAP.md)。
+
 ---
 
 ## 架构
@@ -254,6 +296,9 @@ omni-agent/
 ├── server.py                  # FastAPI 入口与 SSE
 ├── cli.py                     # Rich CLI / 审批交互 / 审计查询
 ├── static/index.html          # Web 控制台（含审计页）
+├── docs/                      # 企业级路线与企业部署文档
+├── Dockerfile                 # 生产镜像（含 bwrap / Chromium）
+├── docker-compose.yml         # 单机生产编排
 ├── tests/                     # pytest
 ├── workspace/                 # Agent 工作区（不入库）
 ├── data/                      # checkpoint 等运行数据（不入库）
@@ -287,6 +332,17 @@ uv run uvicorn server:app --host 127.0.0.1 --port 8001 --reload
 
 CLI 遇到高危操作会询问 `y/N`，批准后会从 checkpoint 继续执行，而不是重新开始任务。
 
+### Docker 部署
+
+```bash
+cp .env.example .env
+# 至少填写一个模型 Key；暴露到 localhost 之外时务必设置 OMNI_API_TOKEN
+docker compose build
+docker compose up -d
+```
+
+默认映射 `127.0.0.1:8001`，包含 Chromium、Playwright 依赖与 bubblewrap。`workspace/`、`data/` 和 `.env` 通过 volume 持久化。若要通过公网访问，请在前面加 TLS 反向代理，并启用 `OMNI_API_TOKEN` 或接入统一身份认证。
+
 ### 常用命令
 
 ```bash
@@ -309,6 +365,7 @@ make check      # 全部检查
 | `ANTHROPIC_API_KEY` | Anthropic API Key | 无 |
 | `HOST` | 监听地址 | `127.0.0.1` |
 | `PORT` | 监听端口 | `8001` |
+| `OMNI_API_TOKEN` | 可选单管理员 API Token；留空关闭认证 | 无 |
 | `WORKSPACE_DIR` | 工作区目录 | `./workspace` |
 | `DATA_DIR` | checkpoint 等数据目录 | `./data` |
 | `CONTEXT_MAX_TOKENS` | 上下文压缩阈值 | `24000` |
@@ -352,7 +409,7 @@ make check      # 全部检查
 
 - `.env`、`model_config.json`、`*.db`、`workspace/`、`data/` 均不入库
 - 密钥只从环境变量读取；`.env` 权限应为 `600`
-- 默认只监听 `127.0.0.1`，不对外暴露
+- 默认只监听 `127.0.0.1`，不对外暴露；暴露到网络前必须设置 `OMNI_API_TOKEN` 或放在反向代理鉴权之后
 - 文件路径统一经过 `safe_join`，阻止 `../` 与符号链接逃逸
 - 命令默认在 bubblewrap 沙箱中执行，无 shell、默认无网络、只写工作区
 - `web_fetch` 拒绝私网、回环、链路本地与云元数据地址
@@ -373,11 +430,11 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：106 passed
+- `pytest`：112 passed
 - `ruff`：All checks passed
 - `mypy`：Success，12 source files
 
-测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测。
+测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护。
 
 ---
 
@@ -389,7 +446,8 @@ uv run mypy
 | Phase 1 | ✅ 完成 | LangGraph 内核：真流式、审批恢复、checkpoint、上下文压缩、并行工具、子代理 |
 | Phase 2 | ✅ 完成 | 沙箱与工具策略：bubblewrap/进程隔离、命令白名单、SSRF、资源配额、审计 |
 | Phase 3 | ✅ 完成 | 能力扩展：Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配、Skills、无头浏览器自动化 |
-| Phase 4 | 计划中 | 单机交付：本地数据目录、密钥加密、桌面壳/安装包、自动更新、可观测性 |
+| Phase 4.0 | ✅ 完成 | 生产化基础：会话生命周期、搜索/导出、可选 API Token、系统信息、前端交互完善 |
+| Phase 4 | 🚧 进行中 | 企业级平台：身份/租户、RBAC、项目与文件、可观测性、Docker/备份、插件与 SDK |
 | Phase 5 | 计划中 | 开源发布：LICENSE、文档、示例、CI Release |
 
 ---

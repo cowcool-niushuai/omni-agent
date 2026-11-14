@@ -17,6 +17,7 @@ import asyncio
 import json
 import operator
 import re
+import sqlite3
 import time
 import uuid
 from pathlib import Path
@@ -134,6 +135,38 @@ class AgentRuntime:
         if self._graph is None:
             await self.initialize()
         return self._graph
+
+    def _delete_checkpoint_rows(self, session_id: str) -> None:
+        """Best-effort synchronous cleanup used when no graph is active."""
+        if not self._checkpoint_path.exists():
+            return
+        try:
+            conn = sqlite3.connect(str(self._checkpoint_path), timeout=5.0)
+            try:
+                conn.execute("DELETE FROM writes WHERE thread_id = ?", (session_id,))
+                conn.execute(
+                    "DELETE FROM checkpoints WHERE thread_id = ?", (session_id,)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            log.exception("checkpoint_delete_failed", session_id=session_id)
+
+    async def delete_thread(self, session_id: str) -> None:
+        """Remove durable checkpoint state for a deleted/cleared conversation."""
+        if session_id in self._active_sessions:
+            raise RuntimeError("会话正在运行，暂时不能删除或清空。")
+        if self._checkpointer is None:
+            self._delete_checkpoint_rows(session_id)
+            return
+        try:
+            await self._checkpointer.adelete_thread(session_id)
+        except Exception:
+            # Test clients and embedded runtimes may not share the graph's
+            # event loop; fall back to a direct SQLite cleanup.
+            log.warning("checkpoint_async_delete_failed", session_id=session_id)
+            self._delete_checkpoint_rows(session_id)
 
     def _build_graph(self) -> Any:
         builder = StateGraph(AgentState)
@@ -740,6 +773,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
     ) -> AsyncGenerator[dict[str, Any], None]:
         database.ensure_session(session_id)
         database.save_message(session_id, "user", user_message)
+        database.maybe_auto_title(session_id, user_message)
 
         graph = await self._get_graph()
         config = {"configurable": {"thread_id": session_id}}

@@ -1,4 +1,4 @@
-.PHONY: install dev test lint fmt typecheck check
+.PHONY: install dev test lint fmt typecheck check frontend docker-build docker-up docker-down
 
 install:
 	uv sync --all-groups
@@ -19,3 +19,15 @@ typecheck:
 	uv run mypy
 
 check: lint typecheck test
+
+frontend:
+	npx --yes tailwindcss@3.4.17 -i static/input.css -o static/app.css --content "static/index.html" --minify
+
+docker-build:
+	docker compose build
+
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down

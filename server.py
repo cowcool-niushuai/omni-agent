@@ -1,5 +1,6 @@
 import json
 import os
+import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -9,7 +10,8 @@ from typing import AsyncIterator, List, Optional
 import structlog
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -31,6 +33,7 @@ configure_logging(settings)
 database.init_db()
 skills_manager.init_default_skills()
 
+APP_STARTED_AT = time.time()
 log = structlog.get_logger("omni.http")
 
 
@@ -65,6 +68,17 @@ app.add_middleware(
 
 WORKSPACE_ROOT = str(Path(settings.workspace_dir).resolve())
 STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "static"))
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+PUBLIC_API_PATHS = {"/health", "/api/auth/status"}
+
+
+def _request_token(request: Request) -> str:
+    authorization = request.headers.get("Authorization", "")
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return request.headers.get("X-API-Key", "") or authorization.strip()
 
 
 @app.middleware("http")
@@ -75,6 +89,20 @@ async def observability_middleware(request: Request, call_next):
         method=request.method,
         path=request.url.path,
     )
+    if (
+        settings.api_token
+        and request.url.path.startswith("/api/")
+        and request.url.path not in PUBLIC_API_PATHS
+    ):
+        provided = _request_token(request)
+        if not provided or not secrets.compare_digest(provided, settings.api_token):
+            log.warning("auth_rejected", path=request.url.path)
+            structlog.contextvars.clear_contextvars()
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "需要有效的 API Token"},
+                headers={"X-Request-ID": request_id},
+            )
     start = time.perf_counter()
     try:
         response = await call_next(request)
@@ -93,7 +121,16 @@ async def observability_middleware(request: Request, call_next):
     return response
 
 
-# 1. Health check
+# 1. Health check and optional single-admin authentication.
+@app.get("/api/auth/status")
+async def api_auth_status(request: Request):
+    required = bool(settings.api_token)
+    authenticated = not required or secrets.compare_digest(
+        _request_token(request), settings.api_token
+    )
+    return {"required": required, "authenticated": authenticated}
+
+
 @app.get("/health")
 async def health():
     return {
@@ -108,6 +145,31 @@ async def health():
         "browser_running": browser_manager.running,
     }
 
+@app.get("/api/system/info")
+async def api_system_info():
+    stats = await run_in_threadpool(database.get_database_stats)
+    checkpoint_path = Path(settings.data_dir) / "checkpoints.db"
+    try:
+        checkpoint_bytes = checkpoint_path.stat().st_size
+    except OSError:
+        checkpoint_bytes = 0
+    return {
+        "version": settings.app_version,
+        "environment": settings.environment,
+        "uptime_seconds": round(time.time() - APP_STARTED_AT, 1),
+        "workspace_dir": str(settings.workspace_dir),
+        "data_dir": str(settings.data_dir),
+        "database": stats,
+        "checkpoint_bytes": checkpoint_bytes,
+        "active_model": model_manager.get_active_model_info(),
+        "scheduler": {
+            "running": scheduler.running,
+            "active_task_id": scheduler.active_task_id,
+        },
+        "browser_running": browser_manager.running,
+        "mcp_servers": mcp_manager.list_server_status(),
+    }
+
 # 2. Sessions API
 class SessionCreate(BaseModel):
     title: Optional[str] = "新对话任务"
@@ -120,11 +182,101 @@ async def api_create_session(body: SessionCreate):
     return {"id": s_id, "title": body.title}
 
 @app.get("/api/sessions")
-async def api_list_sessions():
-    return database.list_sessions()
+async def api_list_sessions(
+    q: Optional[str] = Query(None, max_length=120),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    return database.list_sessions(query=q, limit=limit, offset=offset)
+
+class SessionUpdateRequest(BaseModel):
+    title: str
+
+@app.get("/api/sessions/{session_id}")
+async def api_get_session(session_id: str):
+    session = database.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return session
+
+@app.patch("/api/sessions/{session_id}")
+async def api_rename_session(session_id: str, body: SessionUpdateRequest):
+    try:
+        session = database.rename_session(session_id, body.title)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return session
+
+@app.delete("/api/sessions/{session_id}")
+async def api_delete_session(session_id: str):
+    session = database.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    try:
+        await agent_core.delete_thread(session_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not database.delete_session(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return {"deleted": True, "id": session_id}
+
+@app.delete("/api/sessions/{session_id}/messages")
+async def api_clear_session_messages(session_id: str):
+    if database.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    try:
+        await agent_core.delete_thread(session_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    database.clear_session_messages(session_id)
+    return {"cleared": True, "id": session_id}
+
+@app.get("/api/sessions/{session_id}/export")
+async def api_export_session(session_id: str):
+    session = database.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    messages = database.get_session_messages(session_id)
+    lines = [f"# {session.get('title') or session_id}", ""]
+    lines.append(f"- Session: `{session_id}`")
+    lines.append(f"- Created: {session.get('created_at') or ''}")
+    lines.append("")
+    for message in messages:
+        role = str(message.get("role") or "")
+        if role not in {"user", "assistant"}:
+            continue
+        label = "User" if role == "user" else "Assistant"
+        lines.append(f"## {label}")
+        lines.append("")
+        lines.append(str(message.get("content") or ""))
+        thought = str(message.get("thought") or "").strip()
+        if thought:
+            lines.append("")
+            lines.append("<details><summary>Thinking</summary>")
+            lines.append("")
+            lines.append(thought)
+            lines.append("")
+            lines.append("</details>")
+        lines.append("")
+    content = "\n".join(lines)
+    safe_id = "".join(
+        char if char.isascii() and (char.isalnum() or char in {"-", "_"}) else "_"
+        for char in session_id
+    )[:60]
+    return Response(
+        content=content,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="omniagent-{safe_id}.md"'
+        },
+    )
 
 @app.get("/api/sessions/{session_id}/messages")
 async def api_get_messages(session_id: str):
+    if database.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
     return database.get_session_messages(session_id)
 
 # 3. Realtime SSE Streaming Chat Endpoint

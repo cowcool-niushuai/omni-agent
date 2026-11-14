@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -186,12 +187,16 @@ def init_db():
     conn.close()
 
 # Session operations
+DEFAULT_SESSION_TITLES = {"新智能体对话", "新对话任务", "新对话", "新任务"}
+
+
 def create_session(session_id: str, title: str = "新智能体对话"):
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("INSERT INTO sessions (id, title) VALUES (?, ?)", (session_id, title))
     conn.commit()
     conn.close()
+
 
 def ensure_session(session_id: str, title: str = "新智能体对话"):
     """Create the session lazily; safe to call before every turn."""
@@ -204,21 +209,204 @@ def ensure_session(session_id: str, title: str = "新智能体对话"):
     conn.commit()
     conn.close()
 
-def list_sessions() -> List[Dict[str, Any]]:
+
+def _session_columns() -> str:
+    return """
+        s.*,
+        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count,
+        (SELECT m.content FROM messages m WHERE m.session_id = s.id
+         ORDER BY m.id DESC LIMIT 1) AS last_message,
+        (SELECT m.role FROM messages m WHERE m.session_id = s.id
+         ORDER BY m.id DESC LIMIT 1) AS last_role,
+        (SELECT m.created_at FROM messages m WHERE m.session_id = s.id
+         ORDER BY m.id DESC LIMIT 1) AS last_message_at
+    """
+
+
+def list_sessions(
+    *,
+    query: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """List sessions newest first with message counts and previews."""
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM sessions ORDER BY updated_at DESC")
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    if query and query.strip():
+        pattern = f"%{query.strip()}%"
+        cursor.execute(
+            f"""
+            SELECT {_session_columns()}
+            FROM sessions s
+            WHERE s.title LIKE ? OR s.id LIKE ?
+               OR EXISTS (
+                   SELECT 1 FROM messages m
+                   WHERE m.session_id = s.id AND m.content LIKE ?
+               )
+            ORDER BY s.updated_at DESC, s.created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (pattern, pattern, pattern, limit, offset),
+        )
+    else:
+        cursor.execute(
+            f"""
+            SELECT {_session_columns()}
+            FROM sessions s
+            ORDER BY s.updated_at DESC, s.created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        )
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
+
+def get_session(session_id: str) -> Optional[Dict[str, Any]]:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        f"SELECT {_session_columns()} FROM sessions s WHERE s.id = ?",
+        (session_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def rename_session(session_id: str, title: str) -> Optional[Dict[str, Any]]:
+    title = " ".join(title.split()).strip()
+    if not title:
+        raise ValueError("会话标题不能为空")
+    if len(title) > 120:
+        title = title[:120]
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE sessions SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (title, session_id),
+    )
+    changed = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return get_session(session_id) if changed else None
+
+
+def delete_session(session_id: str) -> bool:
+    """Delete a conversation and all local traces tied to it."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,))
+        if cursor.fetchone() is None:
+            return False
+        cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        cursor.execute(
+            "DELETE FROM permission_requests WHERE session_id = ?", (session_id,)
+        )
+        cursor.execute(
+            "DELETE FROM subagent_tasks WHERE parent_session_id = ?", (session_id,)
+        )
+        cursor.execute("DELETE FROM tool_audit WHERE session_id = ?", (session_id,))
+        cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def clear_session_messages(session_id: str) -> bool:
+    """Clear a conversation while keeping the session shell."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,))
+        if cursor.fetchone() is None:
+            return False
+        cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        cursor.execute(
+            "DELETE FROM permission_requests WHERE session_id = ?", (session_id,)
+        )
+        cursor.execute(
+            "DELETE FROM subagent_tasks WHERE parent_session_id = ?", (session_id,)
+        )
+        cursor.execute("DELETE FROM tool_audit WHERE session_id = ?", (session_id,))
+        cursor.execute(
+            "UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (session_id,),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def maybe_auto_title(session_id: str, first_message: str) -> None:
+    """Give a new conversation a useful title from its first user message."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT title FROM sessions WHERE id = ?", (session_id,))
+    row = cursor.fetchone()
+    if row is None or str(row["title"] or "") not in DEFAULT_SESSION_TITLES:
+        conn.close()
+        return
+    cursor.execute(
+        "SELECT COUNT(*) AS count FROM messages WHERE session_id = ? AND role = 'user'",
+        (session_id,),
+    )
+    count = int(cursor.fetchone()["count"])
+    if count != 1:
+        conn.close()
+        return
+    title = re.sub(r"\s+", " ", first_message).strip()
+    title = re.sub(r"^[#>*\-`\s]+", "", title)
+    title = title[:42] + ("…" if len(title) > 42 else "")
+    if title:
+        cursor.execute(
+            "UPDATE sessions SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (title, session_id),
+        )
+        conn.commit()
+    conn.close()
+
+
+def get_database_stats() -> Dict[str, Any]:
+    conn = get_db()
+    cursor = conn.cursor()
+    counts: Dict[str, int] = {}
+    for table in (
+        "sessions",
+        "messages",
+        "memories",
+        "knowledge_docs",
+        "permission_requests",
+        "subagent_tasks",
+        "tool_audit",
+        "scheduled_tasks",
+    ):
+        cursor.execute(f"SELECT COUNT(*) AS count FROM {table}")
+        counts[table] = int(cursor.fetchone()["count"])
+    conn.close()
+    try:
+        size_bytes = os.path.getsize(DB_PATH)
+    except OSError:
+        size_bytes = 0
+    return {"counts": counts, "database_bytes": size_bytes}
+
+
 def get_session_messages(session_id: str) -> List[Dict[str, Any]]:
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC", (session_id,))
+    cursor.execute(
+        "SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC", (session_id,)
+    )
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
 
 def save_message(session_id: str, role: str, content: str, thought: Optional[str] = None, tool_calls: Optional[Any] = None):
     conn = get_db()

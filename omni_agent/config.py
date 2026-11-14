@@ -9,6 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -30,6 +31,12 @@ class Settings(BaseSettings):
 
     host: str = "127.0.0.1"
     port: int = 8001
+
+    # Optional single-admin API token. Empty disables authentication.
+    api_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("OMNI_API_TOKEN", "API_TOKEN"),
+    )
 
     workspace_dir: Path = BASE_DIR / "workspace"
     data_dir: Path = BASE_DIR / "data"

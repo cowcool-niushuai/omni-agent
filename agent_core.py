@@ -52,5 +52,8 @@ class OmniAgentCore:
     async def run_subagent_task(self, session_id: str, role: str, task: str) -> str:
         return await self.runtime.run_subagent_task(session_id, role, task)
 
+    async def delete_thread(self, session_id: str) -> None:
+        await self.runtime.delete_thread(session_id)
+
 
 agent_core = OmniAgentCore()

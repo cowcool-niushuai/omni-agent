@@ -2,6 +2,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
+import database
 import server
 
 client = TestClient(server.app)
@@ -24,6 +25,33 @@ def test_models_response_has_no_secret() -> None:
     assert body["active"]["ref"]
     assert body["active"]["adapter"] in {"openai-compatible", "anthropic"}
     assert all(model["ref"] for model in body["models"])
+
+
+def test_static_assets_and_system_info() -> None:
+    assert client.get("/static/app.css").status_code == 200
+    assert client.get("/static/vendor/lucide.min.js").status_code == 200
+    info = client.get("/api/system/info")
+    assert info.status_code == 200
+    body = info.json()
+    assert body["version"]
+    assert body["database"]["counts"]["sessions"] >= 0
+    assert "active_model" in body
+
+
+def test_api_token_protects_api(monkeypatch) -> None:
+    monkeypatch.setattr(server.settings, "api_token", "test-token")
+    guard = TestClient(server.app)
+
+    assert guard.get("/health").status_code == 200
+    assert guard.get("/api/models").status_code == 401
+    status = guard.get("/api/auth/status")
+    assert status.status_code == 200
+    assert status.json() == {"required": True, "authenticated": False}
+
+    authorized = guard.get(
+        "/api/models", headers={"Authorization": "Bearer test-token"}
+    )
+    assert authorized.status_code == 200
 
 
 def test_unknown_model_is_rejected() -> None:
@@ -205,3 +233,43 @@ def test_schedule_crud_and_validation() -> None:
         assert deleted.status_code == 200
 
     assert client.delete(f"/api/schedules/{task_id}").status_code == 404
+
+
+def test_session_lifecycle_api() -> None:
+    session_id = f"sess_api_{uuid.uuid4().hex[:8]}"
+    database.ensure_session(session_id, "API 测试会话")
+    database.save_message(session_id, "user", "请检查会话导出")
+    database.save_message(session_id, "assistant", "已检查")
+
+    try:
+        listed = client.get("/api/sessions", params={"q": "API 测试"})
+        assert listed.status_code == 200
+        assert any(item["id"] == session_id for item in listed.json())
+
+        fetched = client.get(f"/api/sessions/{session_id}")
+        assert fetched.status_code == 200
+        assert fetched.json()["message_count"] == 2
+
+        renamed = client.patch(
+            f"/api/sessions/{session_id}", json={"title": "重命名后的会话"}
+        )
+        assert renamed.status_code == 200
+        assert renamed.json()["title"] == "重命名后的会话"
+
+        empty_title = client.patch(f"/api/sessions/{session_id}", json={"title": "  "})
+        assert empty_title.status_code == 400
+
+        exported = client.get(f"/api/sessions/{session_id}/export")
+        assert exported.status_code == 200
+        assert "请检查会话导出" in exported.text
+        assert "text/markdown" in exported.headers["content-type"]
+
+        cleared = client.delete(f"/api/sessions/{session_id}/messages")
+        assert cleared.status_code == 200
+        assert client.get(f"/api/sessions/{session_id}/messages").json() == []
+    finally:
+        deleted = client.delete(f"/api/sessions/{session_id}")
+        assert deleted.status_code == 200
+
+    assert client.get(f"/api/sessions/{session_id}").status_code == 404
+    assert client.delete(f"/api/sessions/{session_id}").status_code == 404
