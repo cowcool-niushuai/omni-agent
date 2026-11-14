@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     log_json: bool = False
     max_iterations: int = 8
 
+    # Context compaction: token budget before old messages are summarized.
+    context_max_tokens: int = 24_000
+    context_keep_last: int = 12
+
     @property
     def cors_origin_list(self) -> list[str]:
         origins = [item.strip() for item in self.cors_origins.split(",") if item.strip()]

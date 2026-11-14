@@ -6,5 +6,5 @@ a deterministic environment.
 
 import os
 
-os.environ.setdefault("OMNI_ENVIRONMENT", "test")
+os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("DEEPSEEK_API_KEY", "unit-test-key")

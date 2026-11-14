@@ -12,6 +12,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 import database
+import permission
 import skills_manager
 from agent_core import agent_core
 from mcp_manager import mcp_manager
@@ -25,79 +26,115 @@ BANNER = """
 [bold #59D6B3]╰─────────────────────────────────────────────────────────────╯[/bold #59D6B3]
 """
 
+def _render_event(event: dict) -> None:
+    ev_type = event.get("type")
+
+    if ev_type == "thought":
+        thought_text = event.get("content", "")
+        console.print(Panel(
+            Text(thought_text, style="#8B9B97"),
+            title="[dim]🧠 思考推理 (Reasoning)[/dim]",
+            title_align="left",
+            border_style="#24332F",
+            padding=(0, 1)
+        ))
+    elif ev_type == "tool_start":
+        fn = event.get("name")
+        args = event.get("arguments", {})
+        console.print(f"[bold #267F68]⚙ 工具调用:[/bold #267F68] [bold #59D6B3]{fn}[/bold #59D6B3] [dim]{args}[/dim]")
+    elif ev_type == "subagent_start":
+        role = event.get("role")
+        task = event.get("task")
+        console.print(Panel(
+            f"[bold #59D6B3]指派子任务:[/bold #59D6B3] {task}",
+            title=f"[bold #59D6B3]🤖 启动子智能体 (Sub-Agent): {role}[/bold #59D6B3]",
+            title_align="left",
+            border_style="#59D6B3",
+            padding=(0, 1)
+        ))
+    elif ev_type == "subagent_done":
+        role = event.get("role")
+        res = event.get("result", "")
+        console.print(Panel(
+            Text(res[:500] + ("..." if len(res) > 500 else ""), style="#EDF2F0"),
+            title=f"[bold #267F68]✅ 子智能体汇报就绪 ({role})[/bold #267F68]",
+            title_align="left",
+            border_style="#267F68",
+            padding=(0, 1)
+        ))
+    elif ev_type == "tool_result":
+        res = event.get("result", "")
+        snippet = res[:300] + ("\n... (截断展示)" if len(res) > 300 else "")
+        console.print(f"[dim green]↳ 返回结果:[/dim green] [dim]{snippet.strip()}[/dim]\n")
+    elif ev_type == "compaction":
+        console.print(
+            f"[dim]🗜 已压缩 {event.get('dropped', 0)} 条较早消息"
+            f"（摘要 {event.get('summary_chars', 0)} 字）[/dim]"
+        )
+    elif ev_type == "permission_intercept":
+        requests = event.get("requests") or []
+        lines = ["[bold yellow]警告：此操作需要人工审批[/bold yellow]", str(event.get("reason") or "")]
+        for item in requests:
+            lines.append(
+                f"[bold]{item.get('tool_name')}[/bold] {item.get('arguments')}\n"
+                f"[dim]{item.get('reason')}[/dim]"
+            )
+        console.print(Panel(
+            "\n".join(lines) + f"\n请求ID: {event.get('request_id')}",
+            title="[bold yellow]🛡️ 权限安全拦截[/bold yellow]",
+            border_style="yellow",
+        ))
+    elif ev_type == "answer_chunk":
+        print(event.get("content", ""), end="", flush=True)
+    elif ev_type == "answer_discard":
+        print()
+    elif ev_type == "error":
+        console.print(f"[bold red]错误:[/bold red] {event.get('message')}")
+    elif ev_type == "done":
+        print()
+
+
+async def _consume_events(events) -> dict | None:
+    """Render events and return the permission event, if the graph paused."""
+    permission_event = None
+    async for event in events:
+        if event.get("type") == "permission_intercept":
+            permission_event = event
+            _render_event(event)
+        else:
+            _render_event(event)
+    return permission_event
+
+
 async def run_cli_stream(session_id: str, prompt: str):
     console.print(f"\n[bold #59D6B3]❯[/bold #59D6B3] [bold #EDF2F0]{prompt}[/bold #EDF2F0]\n")
-    
-    full_answer = ""
 
-    async for event in agent_core.run_react_stream(session_id, prompt):
-        ev_type = event.get("type")
-        
-        # 1. Thought
-        if ev_type == "thought":
-            thought_text = event.get("content", "")
-            console.print(Panel(
-                Text(thought_text, style="#8B9B97"),
-                title="[dim]🧠 思考推理 (Reasoning)[/dim]",
-                title_align="left",
-                border_style="#24332F",
-                padding=(0, 1)
-            ))
-            
-        # 2. Tool Start
-        elif ev_type == "tool_start":
-            fn = event.get("name")
-            args = event.get("arguments", {})
-            console.print(f"[bold #267F68]⚙ 工具调用:[/bold #267F68] [bold #59D6B3]{fn}[/bold #59D6B3] [dim]{args}[/dim]")
-            
-        # 3. SubAgent Start & Done (DeerFlow style)
-        elif ev_type == "subagent_start":
-            role = event.get("role")
-            task = event.get("task")
-            console.print(Panel(
-                f"[bold #59D6B3]指派子任务:[/bold #59D6B3] {task}",
-                title=f"[bold #59D6B3]🤖 启动子智能体 (Sub-Agent): {role}[/bold #59D6B3]",
-                title_align="left",
-                border_style="#59D6B3",
-                padding=(0, 1)
-            ))
-            
-        elif ev_type == "subagent_done":
-            role = event.get("role")
-            res = event.get("result", "")
-            console.print(Panel(
-                Text(res[:500] + ("..." if len(res) > 500 else ""), style="#EDF2F0"),
-                title=f"[bold #267F68]✅ 子智能体汇报就绪 ({role})[/bold #267F68]",
-                title_align="left",
-                border_style="#267F68",
-                padding=(0, 1)
-            ))
-            
-        # 4. Tool Result
-        elif ev_type == "tool_result":
-            res = event.get("result", "")
-            snippet = res[:300] + ("\n... (截断展示)" if len(res) > 300 else "")
-            console.print(f"[dim green]↳ 返回结果:[/dim green] [dim]{snippet.strip()}[/dim]\n")
-            
-        # 5. Permission Interception (Human-in-the-loop)
-        elif ev_type == "permission_intercept":
-            reason = event.get("reason")
-            req_id = event.get("request_id")
-            console.print(Panel(
-                f"[bold yellow]警告：此操作触碰企业级安全网关[/bold yellow]\n{reason}\n请求ID: {req_id}",
-                title="[bold yellow]🛡️ 权限安全拦截[/bold yellow]",
-                border_style="yellow"
-            ))
-            
-        # 6. Stream Answer
-        elif ev_type == "answer_chunk":
-            full_answer += event.get("content", "")
-            print(event.get("content", ""), end="", flush=True)
-            
-        # 7. Error
-        elif ev_type == "error":
-            console.print(f"[bold red]错误:[/bold red] {event.get('message')}")
-            
+    events = agent_core.run_react_stream(session_id, prompt)
+    while True:
+        permission_event = await _consume_events(events)
+        if not permission_event:
+            break
+
+        request_id = str(permission_event.get("request_id", ""))
+        answer = console.input(
+            "[bold yellow]🛡️ 高危操作，是否允许执行？[y/N] [/bold yellow]"
+        ).strip().lower()
+        action = "APPROVE" if answer in {"y", "yes"} else "REJECT"
+        request_ids = [
+            str(item.get("request_id"))
+            for item in permission_event.get("requests", [])
+            if item.get("request_id")
+        ]
+        if not request_ids:
+            request_ids = permission.pending_request_ids(session_id)
+        if action == "APPROVE":
+            permission.approve_requests(request_ids)
+        else:
+            permission.reject_requests(request_ids)
+
+        console.print(f"[dim]已提交: {action}，继续执行…[/dim]")
+        events = agent_core.resume_stream(session_id, request_id, action)
+
     print("\n")
 
 def print_help():

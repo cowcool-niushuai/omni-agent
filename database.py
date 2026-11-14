@@ -140,6 +140,17 @@ def create_session(session_id: str, title: str = "新智能体对话"):
     conn.commit()
     conn.close()
 
+def ensure_session(session_id: str, title: str = "新智能体对话"):
+    """Create the session lazily; safe to call before every turn."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR IGNORE INTO sessions (id, title) VALUES (?, ?)",
+        (session_id, title),
+    )
+    conn.commit()
+    conn.close()
+
 def list_sessions() -> List[Dict[str, Any]]:
     conn = get_db()
     cursor = conn.cursor()

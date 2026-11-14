@@ -367,6 +367,7 @@
   <script>
     let currentSessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
     let isStreaming = false;
+    let pendingPermission = false;
 
     document.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
@@ -545,13 +546,49 @@
 
     async function initSession() {
       document.getElementById('current-session-id').innerText = currentSessionId;
+    }
+
+    async function switchSession(sessionId, title) {
+      currentSessionId = sessionId;
+      pendingPermission = false;
+      document.getElementById('current-session-id').innerText = sessionId;
+      const chatStream = document.getElementById('chat-stream');
+      chatStream.innerHTML = '';
       try {
-        await fetch('/api/sessions', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ title: '新对话' })
+        const res = await fetch(`/api/sessions/${sessionId}/messages`);
+        const messages = await res.json();
+        if (!messages.length) {
+          document.getElementById('empty-state').classList.remove('hidden');
+          chatStream.classList.add('hidden');
+          document.getElementById('chat-input-bar').classList.add('hidden');
+          return;
+        }
+        document.getElementById('empty-state').classList.add('hidden');
+        chatStream.classList.remove('hidden');
+        document.getElementById('chat-input-bar').classList.remove('hidden');
+        messages.forEach(m => {
+          if (m.role === 'user') {
+            const bubble = document.createElement('div');
+            bubble.className = "flex justify-end";
+            bubble.innerHTML = `<div class="max-w-xl bg-[#15201D] text-[#FFFFFF] rounded-2xl px-4 py-2.5 text-xs leading-relaxed shadow-sm">${escapeHtml(m.content || '').replace(/\n/g, '<br>')}</div>`;
+            chatStream.appendChild(bubble);
+          } else if (m.role === 'assistant') {
+            const box = document.createElement('div');
+            box.className = "space-y-2 text-xs";
+            const thought = m.thought
+              ? `<details class="group text-[11px] text-[#7A8C87] border border-[#E3ECE9] bg-[#FFFFFF] rounded-xl px-3 py-2"><summary class="font-medium text-[#15201D] cursor-pointer">思考过程</summary><div class="mt-2 text-[#4A5568] whitespace-pre-wrap font-mono pl-3 border-l-2 border-[#E3ECE9]">${escapeHtml(m.thought)}</div></details>`
+              : '';
+            box.innerHTML = `<div class="trace-steps space-y-1.5">${thought}</div><div class="final-answer prose prose-neutral text-xs max-w-none text-[#15201D] leading-relaxed pt-1"></div>`;
+            box.querySelector('.final-answer').innerHTML = marked.parse(m.content || '');
+            chatStream.appendChild(box);
+          }
         });
-      } catch(e) {}
+        chatStream.querySelectorAll('pre code').forEach((el) => hljs.highlightElement(el));
+        const container = document.getElementById('messages-container');
+        container.scrollTop = container.scrollHeight;
+      } catch (e) {
+        console.error(e);
+      }
     }
 
     async function loadSessions() {
@@ -572,6 +609,7 @@
 
     function createNewSession() {
       currentSessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
+      pendingPermission = false;
       document.getElementById('current-session-id').innerText = currentSessionId;
       document.getElementById('chat-stream').innerHTML = '';
       document.getElementById('empty-state').classList.remove('hidden');
@@ -624,18 +662,221 @@
     // ============================================================================
     // Realtime ReAct Execution with Clean Collapsible Trace
     // ============================================================================
+    function createAssistantBox() {
+      const chatStream = document.getElementById('chat-stream');
+      const assistantBox = document.createElement('div');
+      assistantBox.className = "space-y-2 text-xs";
+      assistantBox.innerHTML = `
+        <div class="trace-steps space-y-1.5"></div>
+        <div class="final-answer prose prose-neutral text-xs max-w-none text-[#15201D] leading-relaxed pt-1"></div>
+      `;
+      chatStream.appendChild(assistantBox);
+      const ctx = {
+        uid: Math.random().toString(36).substring(2, 8),
+        stepsContainer: assistantBox.querySelector('.trace-steps'),
+        answerContainer: assistantBox.querySelector('.final-answer'),
+        fullMarkdown: ''
+      };
+      const container = document.getElementById('messages-container');
+      container.scrollTop = container.scrollHeight;
+      return ctx;
+    }
+
+    function appendThought(ctx, content) {
+      const thoughtEl = document.createElement('details');
+      thoughtEl.className = "group text-[11px] text-[#7A8C87] border border-[#E3ECE9] bg-[#FFFFFF] rounded-xl px-3 py-2 cursor-pointer transition-all";
+      thoughtEl.innerHTML = `
+        <summary class="font-medium text-[#15201D] flex items-center justify-between list-none">
+          <span class="flex items-center gap-1.5"><i data-lucide="compass" class="w-3.5 h-3.5 text-[#267F68]"></i> 思考过程</span>
+          <i data-lucide="chevron-down" class="w-3 h-3 group-open:rotate-180 transition-transform"></i>
+        </summary>
+        <div class="mt-2 text-[#4A5568] leading-relaxed font-mono whitespace-pre-wrap pl-5 border-l-2 border-[#E3ECE9]">${escapeHtml(content || '')}</div>
+      `;
+      ctx.stepsContainer.appendChild(thoughtEl);
+      lucide.createIcons();
+    }
+
+    function appendToolStart(ctx, event) {
+      const toolEl = document.createElement('details');
+      toolEl.id = `tool-${event.tool_call_id || event.name}`;
+      toolEl.className = "group text-[11px] border border-[#E3ECE9] bg-[#FFFFFF] rounded-xl px-3 py-2 transition-all";
+      toolEl.innerHTML = `
+        <summary class="font-medium text-[#15201D] flex items-center justify-between list-none cursor-pointer">
+          <span class="flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-[#59D6B3]"></span>
+            <span class="font-mono text-xs">${event.name}</span>
+          </span>
+          <i data-lucide="chevron-down" class="w-3 h-3 text-[#7A8C87] group-open:rotate-180 transition-transform"></i>
+        </summary>
+        <div class="mt-2 space-y-1.5 font-mono text-[10px]">
+          <div class="bg-[#F5F8F7] p-2 rounded-lg text-[#4A5568] overflow-x-auto">${escapeHtml(JSON.stringify(event.arguments || {}, null, 2))}</div>
+          <div class="tool-output-area text-[#7A8C87]">执行中...</div>
+        </div>
+      `;
+      ctx.stepsContainer.appendChild(toolEl);
+      lucide.createIcons();
+    }
+
+    function appendToolResult(ctx, event) {
+      const toolEl = document.getElementById(`tool-${event.tool_call_id || event.name}`);
+      if (!toolEl) return;
+      const outArea = toolEl.querySelector('.tool-output-area');
+      if (outArea) {
+        outArea.innerHTML = `<div class="bg-[#F5F8F7] p-2 rounded-lg text-[#15201D] whitespace-pre-wrap max-h-36 overflow-y-auto">${escapeHtml(event.result || '')}</div>`;
+      }
+    }
+
+    function appendSubagentStart(ctx, event) {
+      const subEl = document.createElement('details');
+      subEl.id = `subagent-${event.tool_call_id || event.role}`;
+      subEl.className = "group text-[11px] border border-[#D5E2DE] bg-[#FAFCFB] rounded-xl px-3 py-2.5 transition-all";
+      subEl.innerHTML = `
+        <summary class="font-medium text-[#15201D] flex items-center justify-between list-none cursor-pointer">
+          <span class="flex items-center gap-2">
+            <i data-lucide="git-branch" class="w-3.5 h-3.5 text-[#267F68]"></i>
+            <span>子智能体: ${event.role}</span>
+          </span>
+          <span class="text-[10px] text-[#7A8C87] font-mono">执行中</span>
+        </summary>
+        <div class="mt-2 space-y-1 font-mono text-[10px] text-[#4A5568]">
+          <div class="bg-[#FFFFFF] p-2 rounded-lg border border-[#E3ECE9]">${escapeHtml(event.task || '')}</div>
+          <div class="subagent-result text-[#7A8C87]"></div>
+        </div>
+      `;
+      ctx.stepsContainer.appendChild(subEl);
+      lucide.createIcons();
+    }
+
+    function appendSubagentDone(ctx, event) {
+      const subEl = document.getElementById(`subagent-${event.tool_call_id || event.role}`);
+      if (!subEl) return;
+      const res = subEl.querySelector('.subagent-result');
+      if (res) {
+        res.innerHTML = `<div class="bg-[#F5F8F7] p-2 rounded-lg mt-1 text-[#15201D] whitespace-pre-wrap">${escapeHtml(event.result || '')}</div>`;
+      }
+      const status = subEl.querySelector('summary span:last-child');
+      if (status) status.innerText = '已完成';
+    }
+
+    function appendPermission(ctx, event) {
+      const sid = event.session_id || currentSessionId;
+      const requests = (event.requests && event.requests.length)
+        ? event.requests
+        : [{ tool_name: event.tool_name, arguments: event.arguments, reason: event.reason }];
+      const details = requests.map((r) => `
+        <div class="border-t border-[#F0DFC8] pt-1.5 mt-1.5">
+          <div class="font-mono text-[10px] text-[#3D2D22]">${escapeHtml(r.tool_name || '')}</div>
+          <pre class="bg-[#FFFDF8] p-2 rounded-lg mt-1 text-[10px] text-[#5B4636] overflow-x-auto whitespace-pre-wrap">${escapeHtml(JSON.stringify(r.arguments || {}, null, 2))}</pre>
+          ${r.reason ? `<div class="text-[10px] text-[#7A6A5E] mt-1">${escapeHtml(r.reason)}</div>` : ''}
+        </div>
+      `).join('');
+
+      const warnEl = document.createElement('div');
+      warnEl.id = `perm-${ctx.uid}-${event.request_id}`;
+      warnEl.setAttribute('data-perm-card', '1');
+      warnEl.className = "border border-[#C98B4E] bg-[#FFF8EC] rounded-xl p-3 text-xs space-y-2";
+      warnEl.innerHTML = `
+        <div class="font-semibold text-[#3D2D22] flex items-center gap-1.5">
+          <i data-lucide="shield-alert" class="w-4 h-4 text-[#C98B4E]"></i>
+          <span>高危操作待确认</span>
+        </div>
+        <div class="text-[11px] text-[#7A6A5E]">${escapeHtml(event.reason || '')}</div>
+        ${details}
+        <div class="flex items-center gap-2 pt-1">
+          <button data-perm-id="${event.request_id}" onclick="confirmPermission('${event.request_id}', 'APPROVE', '${sid}')" class="px-3 py-1 bg-[#15201D] text-white rounded-lg text-xs font-semibold">允许执行</button>
+          <button data-perm-id="${event.request_id}" onclick="confirmPermission('${event.request_id}', 'REJECT', '${sid}')" class="px-3 py-1 bg-[#E3ECE9] text-[#15201D] rounded-lg text-xs font-semibold">取消</button>
+        </div>
+      `;
+      ctx.stepsContainer.appendChild(warnEl);
+      lucide.createIcons();
+    }
+
+    function appendCompaction(ctx, event) {
+      const note = document.createElement('div');
+      note.className = "text-[10px] text-[#7A8C87] border border-[#E3ECE9] bg-[#FAFCFB] rounded-lg px-2.5 py-1.5";
+      note.innerText = `已压缩 ${event.dropped || 0} 条较早消息（摘要 ${event.summary_chars || 0} 字）`;
+      ctx.stepsContainer.appendChild(note);
+    }
+
+    function appendError(ctx, message) {
+      const errEl = document.createElement('div');
+      errEl.className = "border border-[#D98B8B] bg-[#FFF5F5] rounded-xl p-3 text-xs text-[#8B2E2E]";
+      errEl.innerText = message || '发生未知错误';
+      ctx.stepsContainer.appendChild(errEl);
+    }
+
+    function handleStreamEvent(event, ctx) {
+      if (event.type === 'thought') {
+        appendThought(ctx, event.content);
+      } else if (event.type === 'tool_start') {
+        appendToolStart(ctx, event);
+      } else if (event.type === 'tool_result') {
+        appendToolResult(ctx, event);
+      } else if (event.type === 'subagent_start') {
+        appendSubagentStart(ctx, event);
+      } else if (event.type === 'subagent_done') {
+        appendSubagentDone(ctx, event);
+      } else if (event.type === 'permission_intercept') {
+        pendingPermission = true;
+        appendPermission(ctx, event);
+      } else if (event.type === 'compaction') {
+        appendCompaction(ctx, event);
+      } else if (event.type === 'answer_chunk') {
+        ctx.fullMarkdown += event.content || '';
+        ctx.answerContainer.innerHTML = marked.parse(ctx.fullMarkdown);
+        ctx.answerContainer.querySelectorAll('pre code').forEach((el) => {
+          hljs.highlightElement(el);
+        });
+      } else if (event.type === 'answer_discard') {
+        ctx.fullMarkdown = '';
+        ctx.answerContainer.innerHTML = '';
+      } else if (event.type === 'error') {
+        appendError(ctx, event.message);
+      }
+      const container = document.getElementById('messages-container');
+      container.scrollTop = container.scrollHeight;
+    }
+
+    async function streamSSE(url, payload, ctx) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const dataStr = line.replace('data: ', '').trim();
+          if (!dataStr) continue;
+          try {
+            handleStreamEvent(JSON.parse(dataStr), ctx);
+          } catch (e) {
+            console.error('Bad SSE event', e, dataStr);
+          }
+        }
+      }
+    }
+
     async function executePrompt(promptText) {
-      if (isStreaming) return;
+      if (isStreaming || pendingPermission) return;
       isStreaming = true;
 
-      // Switch from empty state to conversation mode
       document.getElementById('empty-state').classList.add('hidden');
       document.getElementById('chat-stream').classList.remove('hidden');
       document.getElementById('chat-input-bar').classList.remove('hidden');
 
       const chatStream = document.getElementById('chat-stream');
-
-      // 1. Render User Message
       const userBubble = document.createElement('div');
       userBubble.className = "flex justify-end";
       userBubble.innerHTML = `
@@ -644,174 +885,66 @@
         </div>
       `;
       chatStream.appendChild(userBubble);
-
-      // 2. Prepare Assistant Response Container
-      const assistantBox = document.createElement('div');
-      assistantBox.className = "space-y-2 text-xs";
-      assistantBox.innerHTML = `
-        <div class="trace-steps space-y-1.5"></div>
-        <div class="final-answer prose prose-neutral text-xs max-w-none text-[#15201D] leading-relaxed pt-1"></div>
-      `;
-      chatStream.appendChild(assistantBox);
-
-      const stepsContainer = assistantBox.querySelector('.trace-steps');
-      const answerContainer = assistantBox.querySelector('.final-answer');
-
-      const container = document.getElementById('messages-container');
-      container.scrollTop = container.scrollHeight;
+      const ctx = createAssistantBox();
 
       try {
-        const response = await fetch('/api/chat/stream', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ session_id: currentSessionId, message: promptText })
-        });
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let fullMarkdown = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n\n');
-          buffer = lines.pop();
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const dataStr = line.replace('data: ', '').trim();
-              if (!dataStr) continue;
-              const event = JSON.parse(dataStr);
-
-              // 1. Thought Event (Quiet Collapsible)
-              if (event.type === 'thought') {
-                const thoughtEl = document.createElement('details');
-                thoughtEl.className = "group text-[11px] text-[#7A8C87] border border-[#E3ECE9] bg-[#FFFFFF] rounded-xl px-3 py-2 cursor-pointer transition-all";
-                thoughtEl.innerHTML = `
-                  <summary class="font-medium text-[#15201D] flex items-center justify-between list-none">
-                    <span class="flex items-center gap-1.5"><i data-lucide="compass" class="w-3.5 h-3.5 text-[#267F68]"></i> 思考过程</span>
-                    <i data-lucide="chevron-down" class="w-3 h-3 group-open:rotate-180 transition-transform"></i>
-                  </summary>
-                  <div class="mt-2 text-[#4A5568] leading-relaxed font-mono whitespace-pre-wrap pl-5 border-l-2 border-[#E3ECE9]">${escapeHtml(event.content)}</div>
-                `;
-                stepsContainer.appendChild(thoughtEl);
-                lucide.createIcons();
-              }
-
-              // 2. Tool Start Event (Minimalist Quiet Pill)
-              else if (event.type === 'tool_start') {
-                const toolEl = document.createElement('details');
-                toolEl.id = `tool-${event.tool_call_id || event.name}`;
-                toolEl.className = "group text-[11px] border border-[#E3ECE9] bg-[#FFFFFF] rounded-xl px-3 py-2 transition-all";
-                toolEl.innerHTML = `
-                  <summary class="font-medium text-[#15201D] flex items-center justify-between list-none cursor-pointer">
-                    <span class="flex items-center gap-2">
-                      <span class="w-1.5 h-1.5 rounded-full bg-[#59D6B3]"></span>
-                      <span class="font-mono text-xs">${event.name}</span>
-                    </span>
-                    <i data-lucide="chevron-down" class="w-3 h-3 text-[#7A8C87] group-open:rotate-180 transition-transform"></i>
-                  </summary>
-                  <div class="mt-2 space-y-1.5 font-mono text-[10px]">
-                    <div class="bg-[#F5F8F7] p-2 rounded-lg text-[#4A5568] overflow-x-auto">${escapeHtml(JSON.stringify(event.arguments, null, 2))}</div>
-                    <div class="tool-output-area text-[#7A8C87]">执行中...</div>
-                  </div>
-                `;
-                stepsContainer.appendChild(toolEl);
-                lucide.createIcons();
-              }
-
-              // 3. SubAgent Event (DeerFlow Style Minimalist Card)
-              else if (event.type === 'subagent_start') {
-                const subEl = document.createElement('details');
-                subEl.id = `subagent-${event.tool_call_id || event.role}`;
-                subEl.className = "group text-[11px] border border-[#D5E2DE] bg-[#FAFCFB] rounded-xl px-3 py-2.5 transition-all";
-                subEl.innerHTML = `
-                  <summary class="font-medium text-[#15201D] flex items-center justify-between list-none cursor-pointer">
-                    <span class="flex items-center gap-2">
-                      <i data-lucide="git-branch" class="w-3.5 h-3.5 text-[#267F68]"></i>
-                      <span>子智能体: ${event.role}</span>
-                    </span>
-                    <span class="text-[10px] text-[#7A8C87] font-mono">执行中</span>
-                  </summary>
-                  <div class="mt-2 space-y-1 font-mono text-[10px] text-[#4A5568]">
-                    <div class="bg-[#FFFFFF] p-2 rounded-lg border border-[#E3ECE9]">${escapeHtml(event.task)}</div>
-                    <div class="subagent-result text-[#7A8C87]"></div>
-                  </div>
-                `;
-                stepsContainer.appendChild(subEl);
-                lucide.createIcons();
-              }
-              else if (event.type === 'subagent_done') {
-                const subEl = document.getElementById(`subagent-${event.tool_call_id || event.role}`);
-                if (subEl) {
-                  const res = subEl.querySelector('.subagent-result');
-                  if (res) {
-                    res.innerHTML = `<div class="bg-[#F5F8F7] p-2 rounded-lg mt-1 text-[#15201D] whitespace-pre-wrap">${escapeHtml(event.result)}</div>`;
-                  }
-                }
-              }
-
-              // 4. Permission Intercept (Minimal Confirmation)
-              else if (event.type === 'permission_intercept') {
-                const warnEl = document.createElement('div');
-                warnEl.className = "border border-[#C98B4E] bg-[#FFF8EC] rounded-xl p-3 text-xs space-y-2";
-                warnEl.innerHTML = `
-                  <div class="font-semibold text-[#3D2D22] flex items-center gap-1.5">
-                    <i data-lucide="shield-alert" class="w-4 h-4 text-[#C98B4E]"></i>
-                    <span>高危操作待确认</span>
-                  </div>
-                  <div class="text-[11px] text-[#7A6A5E]">${escapeHtml(event.reason)}</div>
-                  <div class="flex items-center gap-2 pt-1">
-                    <button onclick="confirmPermission('${event.request_id}', 'APPROVE')" class="px-3 py-1 bg-[#15201D] text-white rounded-lg text-xs font-semibold">允许执行</button>
-                    <button onclick="confirmPermission('${event.request_id}', 'REJECT')" class="px-3 py-1 bg-[#E3ECE9] text-[#15201D] rounded-lg text-xs font-semibold">取消</button>
-                  </div>
-                `;
-                stepsContainer.appendChild(warnEl);
-                lucide.createIcons();
-              }
-
-              // 5. Tool Result
-              else if (event.type === 'tool_result') {
-                const toolEl = document.getElementById(`tool-${event.tool_call_id || event.name}`);
-                if (toolEl) {
-                  const outArea = toolEl.querySelector('.tool-output-area');
-                  if (outArea) {
-                    outArea.innerHTML = `<div class="bg-[#F5F8F7] p-2 rounded-lg text-[#15201D] whitespace-pre-wrap max-h-36 overflow-y-auto">${escapeHtml(event.result)}</div>`;
-                  }
-                }
-              }
-
-              // 6. Final Answer Stream Chunk
-              else if (event.type === 'answer_chunk') {
-                fullMarkdown += event.content;
-                answerContainer.innerHTML = marked.parse(fullMarkdown);
-                answerContainer.querySelectorAll('pre code').forEach((el) => {
-                  hljs.highlightElement(el);
-                });
-              }
-
-              container.scrollTop = container.scrollHeight;
-            }
-          }
-        }
+        await streamSSE('/api/chat/stream', {
+          session_id: currentSessionId,
+          message: promptText
+        }, ctx);
       } catch (err) {
         console.error(err);
+        appendError(ctx, `请求失败：${err.message || err}`);
       } finally {
         isStreaming = false;
         loadWorkspaceFiles();
+        loadSessions();
       }
     }
 
-    async function confirmPermission(reqId, action) {
-      await fetch('/api/permission/confirm', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ request_id: reqId, action })
-      });
-      alert(`已提交: ${action}`);
+    async function confirmPermission(reqId, action, sessionId) {
+      if (isStreaming) return;
+      const sid = sessionId || currentSessionId;
+      const buttons = document.querySelectorAll(`button[data-perm-id="${reqId}"]`);
+      buttons.forEach((btn) => { btn.disabled = true; btn.classList.add('opacity-50'); });
+
+      const card = buttons.length ? buttons[0].closest('[data-perm-card]') : null;
+      if (card) {
+        const status = document.createElement('div');
+        status.className = "text-[10px] text-[#7A6A5E] pt-1";
+        status.innerText = action === 'APPROVE' ? '已允许，继续执行…' : '已拒绝，继续执行…';
+        card.appendChild(status);
+      }
+
+      isStreaming = true;
+      document.getElementById('empty-state').classList.add('hidden');
+      document.getElementById('chat-stream').classList.remove('hidden');
+      document.getElementById('chat-input-bar').classList.remove('hidden');
+      const ctx = createAssistantBox();
+
+      try {
+        const res = await fetch('/api/permission/confirm', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ request_id: reqId, action, session_id: sid })
+        });
+        if (!res.ok) {
+          throw new Error(await res.text());
+        }
+        await streamSSE('/api/chat/resume', {
+          session_id: sid,
+          request_id: reqId,
+          action
+        }, ctx);
+      } catch (err) {
+        console.error(err);
+        appendError(ctx, `审批恢复失败：${err.message || err}`);
+      } finally {
+        isStreaming = false;
+        pendingPermission = false;
+        loadWorkspaceFiles();
+        loadSessions();
+      }
     }
 
     // ============================================================================

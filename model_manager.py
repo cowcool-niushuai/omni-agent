@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "model_config.json"
@@ -249,6 +249,22 @@ class ModelManager:
             api_key=api_key,
             base_url=info.get("base_url") or "https://api.deepseek.com",
             timeout=35.0,
+        )
+        return client, str(info.get("model_name") or "deepseek-chat")
+
+    def get_async_client_and_model(self) -> tuple[AsyncOpenAI, str]:
+        info = self.get_active_model_info(include_secret=True)
+        api_key = info.get("api_key")
+        if not api_key:
+            env_name = provider_env_key(str(info.get("provider_key", "")))
+            raise RuntimeError(
+                f"Provider '{info.get('provider_name')}' has no API key configured. "
+                f"Add {env_name} to .env."
+            )
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=info.get("base_url") or "https://api.deepseek.com",
+            timeout=120.0,
         )
         return client, str(info.get("model_name") or "deepseek-chat")
 

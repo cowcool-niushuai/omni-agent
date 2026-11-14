@@ -2,8 +2,9 @@ import json
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List, Optional
+from typing import AsyncIterator, List, Optional
 
 import structlog
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -29,7 +30,23 @@ skills_manager.init_default_skills()
 
 log = structlog.get_logger("omni.http")
 
-app = FastAPI(title="OmniAgent - Autonomous AI Agent Platform", version=settings.app_version)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await agent_core.initialize()
+    log.info("agent_runtime_ready")
+    try:
+        yield
+    finally:
+        await agent_core.close()
+        log.info("agent_runtime_closed")
+
+
+app = FastAPI(
+    title="OmniAgent - Autonomous AI Agent Platform",
+    version=settings.app_version,
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -105,24 +122,49 @@ class ChatRequest(BaseModel):
     session_id: str
     message: str
 
-@app.post("/api/chat/stream")
-async def api_chat_stream(body: ChatRequest):
-    async def event_generator():
-        try:
-            async for event in agent_core.run_react_stream(body.session_id, body.message):
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-        except Exception as e:
-            err = {"type": "error", "message": f"Server stream error: {str(e)}"}
-            yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
 
+async def _sse_events(events: AsyncIterator[dict]) -> AsyncIterator[str]:
+    try:
+        async for event in events:
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+    except Exception as exc:
+        log.exception("sse_stream_failed")
+        err = {"type": "error", "message": f"Server stream error: {exc}"}
+        yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+
+
+def _sse_response(events: AsyncIterator[dict]) -> StreamingResponse:
     return StreamingResponse(
-        event_generator(),
+        _sse_events(events),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/chat/stream")
+async def api_chat_stream(body: ChatRequest):
+    return _sse_response(
+        agent_core.run_react_stream(body.session_id, body.message)
+    )
+
+
+class ChatResumeRequest(BaseModel):
+    session_id: str
+    request_id: str
+    action: str  # APPROVE | REJECT
+
+
+@app.post("/api/chat/resume")
+async def api_chat_resume(body: ChatResumeRequest):
+    action = body.action.upper()
+    if action not in {"APPROVE", "REJECT"}:
+        raise HTTPException(status_code=400, detail="action must be APPROVE or REJECT")
+    return _sse_response(
+        agent_core.resume_stream(body.session_id, body.request_id, action)
     )
 
 # 4. Skills API
@@ -211,15 +253,39 @@ async def api_workspace_file_content(path: str = Query(...)):
 class PermissionDecision(BaseModel):
     request_id: str
     action: str # "APPROVE" or "REJECT"
+    session_id: Optional[str] = None
 
 @app.post("/api/permission/confirm")
 async def api_permission_confirm(body: PermissionDecision):
-    if body.action == "APPROVE":
-        permission.approve_request(body.request_id)
-        return {"status": "APPROVED", "request_id": body.request_id}
+    action = body.action.upper()
+    if action not in {"APPROVE", "REJECT"}:
+        raise HTTPException(status_code=400, detail="action 必须是 APPROVE 或 REJECT")
+
+    status = permission.get_request_status(body.request_id)
+    if status == "NOT_FOUND":
+        # The UI sends the batch id for one approval card. Resolve it to the
+        # individual pending requests created by the approval node.
+        if not body.session_id:
+            raise HTTPException(status_code=404, detail="审批请求不存在")
+        request_ids = permission.pending_request_ids(body.session_id)
+        if not request_ids:
+            raise HTTPException(status_code=404, detail="审批请求不存在")
     else:
-        permission.reject_request(body.request_id)
-        return {"status": "REJECTED", "request_id": body.request_id}
+        request_ids = [body.request_id]
+
+    if action == "APPROVE":
+        permission.approve_requests(request_ids)
+        return {
+            "status": "APPROVED",
+            "request_id": body.request_id,
+            "request_ids": request_ids,
+        }
+    permission.reject_requests(request_ids)
+    return {
+        "status": "REJECTED",
+        "request_id": body.request_id,
+        "request_ids": request_ids,
+    }
 
 @app.get("/api/permission/pending")
 async def api_permission_pending():
