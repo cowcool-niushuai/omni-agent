@@ -41,6 +41,11 @@ class FileReadArgs(_Args):
     end_line: int = Field(default=200, ge=1)
 
 
+class DocumentReadArgs(_Args):
+    filepath: str = Field(min_length=1)
+    max_chars: int = Field(default=0, ge=0)
+
+
 class FileWriteArgs(_Args):
     filepath: str = Field(min_length=1)
     content: str
@@ -133,6 +138,7 @@ class UpdatePlanArgs(_Args):
 NATIVE_MODELS: dict[str, type[BaseModel]] = {
     "file_list": FileListArgs,
     "file_read": FileReadArgs,
+    "document_read": DocumentReadArgs,
     "file_write": FileWriteArgs,
     "file_edit": FileEditArgs,
     "bash_run": BashRunArgs,
@@ -153,6 +159,7 @@ NATIVE_MODELS: dict[str, type[BaseModel]] = {
 IDEMPOTENT_TOOLS = {
     "file_list",
     "file_read",
+    "document_read",
     "memory_search",
     "rag_search",
     "read_skill_doc",

@@ -102,6 +102,8 @@ class Settings(BaseSettings):
     attachment_max_files: int = 5
     vision_max_images: int = 4
     vision_max_image_bytes: int = 8 * 1024 * 1024
+    document_max_chars: int = 30_000
+    document_max_bytes: int = 30 * 1024 * 1024
 
     web_fetch_timeout_seconds: float = 10.0
     web_fetch_max_bytes: int = 2_000_000

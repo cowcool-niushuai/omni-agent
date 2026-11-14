@@ -2,9 +2,9 @@
 
 This module intentionally runs outside the command sandbox: remote Git
 operations need credentials and network access.  Security therefore comes from
-a fixed argv (never a shell), workspace path containment, strict argument
-validation, and an explicit token that is passed through a temporary askpass
-helper instead of the command line.
+a fixed argv (never a shell), workspace plus explicitly registered external-root
+containment, strict argument validation, and an explicit token that is passed
+through a temporary askpass helper instead of the command line.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
@@ -25,10 +26,98 @@ BRANCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")
 MAX_DIFF_CHARS = 200_000
 MAX_LOG_ENTRIES = 50
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build"}
+DENIED_ROOT_PATHS = {
+    "/",
+    "/bin",
+    "/boot",
+    "/dev",
+    "/etc",
+    "/lib",
+    "/lib64",
+    "/opt",
+    "/proc",
+    "/root",
+    "/run",
+    "/sbin",
+    "/sys",
+    "/usr",
+    "/var",
+}
+_EXTRA_ROOTS: ContextVar[tuple[Path, ...]] = ContextVar("git_extra_roots", default=())
 
 
 class GitError(RuntimeError):
     """Raised when a Git operation fails or is rejected."""
+
+
+def set_extra_roots(roots: Iterable[str | Path]) -> Token[tuple[Path, ...]]:
+    resolved: List[Path] = []
+    for raw in roots:
+        try:
+            path = Path(raw).expanduser().resolve()
+        except (OSError, RuntimeError):
+            continue
+        if path.is_dir() and path not in resolved:
+            resolved.append(path)
+    return _EXTRA_ROOTS.set(tuple(resolved))
+
+
+def reset_extra_roots(token: Token[tuple[Path, ...]]) -> None:
+    _EXTRA_ROOTS.reset(token)
+
+
+def current_extra_roots() -> tuple[Path, ...]:
+    return _EXTRA_ROOTS.get()
+
+
+def call_with_roots(fn: Any, *args: Any, roots: Iterable[str | Path] = (), **kwargs: Any) -> Any:
+    """Run a Git service function with an explicit external-root scope."""
+    token = set_extra_roots(roots)
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        reset_extra_roots(token)
+
+
+def validate_external_root(raw: str) -> Path:
+    """Validate an admin-registered external repository directory."""
+    value = str(raw or "").strip()
+    if not value or "\x00" in value:
+        raise GitError("外部仓库目录不能为空")
+    path = Path(value).expanduser().resolve()
+    if not path.exists() or not path.is_dir():
+        raise GitError("外部仓库目录不存在或不是目录")
+    if path == Path("/") or str(path) in DENIED_ROOT_PATHS:
+        raise GitError("不能把系统目录注册为外部仓库目录")
+    for denied in DENIED_ROOT_PATHS:
+        if denied != "/" and (path == Path(denied) or Path(denied) in path.parents):
+            raise GitError(f"不能把系统目录 {denied} 注册为外部仓库目录")
+    return path
+
+
+def _path_in_roots(path: Path, roots: Iterable[Path]) -> bool:
+    resolved = path.resolve()
+    for root in roots:
+        try:
+            root = Path(root).resolve()
+        except OSError:
+            continue
+        if resolved == root or root in resolved.parents:
+            return True
+    return False
+
+
+def _all_roots(workspace: Path) -> tuple[Path, ...]:
+    root = Path(workspace).resolve()
+    return (root, *current_extra_roots())
+
+
+def _display_path(path: Path, workspace: Path) -> str:
+    try:
+        relative = path.resolve().relative_to(Path(workspace).resolve()).as_posix()
+        return "" if relative == "." else relative
+    except ValueError:
+        return str(path.resolve())
 
 
 def _git_binary() -> str:
@@ -39,11 +128,14 @@ def _git_binary() -> str:
 
 
 def resolve_path(workspace: Path, relative: str = "") -> Path:
-    """Resolve a path under the workspace, rejecting path traversal."""
+    """Resolve a workspace or explicitly allowed external repository path."""
     root = Path(workspace).resolve()
-    candidate = (root / relative).resolve() if relative else root
-    if candidate != root and root not in candidate.parents:
-        raise GitError("路径不在当前工作区内")
+    candidate = Path(relative).expanduser() if relative else root
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    candidate = candidate.resolve()
+    if not _path_in_roots(candidate, _all_roots(workspace)):
+        raise GitError("路径不在当前工作区或已注册的外部仓库目录内")
     return candidate
 
 
@@ -58,8 +150,7 @@ def _repo_root(path: Path, workspace: Path) -> Optional[Path]:
     if proc.returncode != 0:
         return None
     top = Path(proc.stdout.strip()).resolve()
-    root = Path(workspace).resolve()
-    if top != root and root not in top.parents:
+    if not _path_in_roots(top, _all_roots(workspace)):
         return None
     return top
 
@@ -198,11 +289,11 @@ def status(workspace: Path, relative: str = "") -> Dict[str, Any]:
     """Return repository state for the selected repository."""
     path = resolve_path(workspace, relative)
     top = _repo_root(path, workspace)
+    relative_path = _display_path(path, workspace)
     base = {
         "path": str(path),
-        "relative_path": path.relative_to(Path(workspace).resolve()).as_posix()
-        if path != Path(workspace).resolve()
-        else "",
+        "relative_path": relative_path,
+        "external": relative_path == str(path.resolve()),
         "is_repo": top is not None,
     }
     if top is None:
@@ -502,16 +593,17 @@ def fetch(
     return _network(workspace, relative, ["fetch", "--all", "--prune"], token=token)
 
 
-def list_repos(workspace: Path) -> List[Dict[str, Any]]:
-    root = Path(workspace).resolve()
+def _scan_repos(root: Path, *, external: bool) -> List[Dict[str, Any]]:
+    root = root.resolve()
     result: List[Dict[str, Any]] = []
     if (root / ".git").exists():
         result.append(
             {
-                "path": "",
+                "path": str(root) if external else "",
                 "name": root.name,
                 "root": str(root),
                 "branch": _current_branch(root),
+                "external": external,
             }
         )
     for current, dirs, _files in os.walk(root):
@@ -525,14 +617,28 @@ def list_repos(workspace: Path) -> List[Dict[str, Any]]:
             rel = Path(current).relative_to(root).as_posix()
             result.append(
                 {
-                    "path": rel,
+                    "path": str(Path(current).resolve()) if external else rel,
                     "name": Path(current).name,
                     "root": str(Path(current).resolve()),
                     "branch": _current_branch(Path(current)),
+                    "external": external,
                 }
             )
             dirs[:] = []
-    result.sort(key=lambda item: item["path"])
+    return result
+
+
+def list_repos(workspace: Path) -> List[Dict[str, Any]]:
+    root = Path(workspace).resolve()
+    result = _scan_repos(root, external=False)
+    seen = {str(Path(root).resolve())}
+    for extra in current_extra_roots():
+        resolved = extra.resolve()
+        if str(resolved) in seen:
+            continue
+        seen.add(str(resolved))
+        result.extend(_scan_repos(resolved, external=True))
+    result.sort(key=lambda item: (bool(item.get("external")), item["path"]))
     return result
 
 

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+import database
 import git_service
 import github_service
 from omni_agent import tenancy
@@ -22,6 +26,48 @@ def _workspace():
 def _require_write() -> None:
     if not tenancy.get_context().can_write:
         raise HTTPException(status_code=403, detail="当前角色没有 Git 写权限")
+
+
+def _require_admin() -> None:
+    if tenancy.get_context().role != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以管理外部仓库目录")
+
+
+def _extra_roots() -> List[Path]:
+    context = tenancy.get_context()
+    raw = database.get_project_setting(context.project_id, "git_roots", "[]")
+    try:
+        values = json.loads(raw)
+    except (TypeError, ValueError):
+        values = []
+    roots: List[Path] = []
+    for item in values if isinstance(values, list) else []:
+        try:
+            path = git_service.validate_external_root(str(item))
+        except git_service.GitError:
+            continue
+        if path not in roots:
+            roots.append(path)
+    return roots
+
+
+def _save_roots(roots: List[Path]) -> None:
+    database.set_project_setting(
+        tenancy.get_context().project_id,
+        "git_roots",
+        json.dumps([str(item) for item in roots]),
+    )
+
+
+async def _git_call(fn, *args, **kwargs):
+    """Run a Git operation with this project's external roots in scope."""
+    return await run_in_threadpool(
+        git_service.call_with_roots,
+        fn,
+        *args,
+        roots=_extra_roots(),
+        **kwargs,
+    )
 
 
 def _git_error(exc: Exception) -> HTTPException:
@@ -65,6 +111,10 @@ class CloneRequest(BaseModel):
     token: bool = False
 
 
+class GitRootRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=2000)
+
+
 class GitHubConnectRequest(BaseModel):
     token: str = Field(min_length=1, max_length=500)
 
@@ -98,13 +148,13 @@ class IssueCreateRequest(BaseModel):
 
 @router.get("/repos")
 async def api_git_repos():
-    return await run_in_threadpool(git_service.list_repos, _workspace())
+    return await _git_call(git_service.list_repos, _workspace())
 
 
 @router.get("/status")
 async def api_git_status(repo: str = ""):
     try:
-        return await run_in_threadpool(git_service.status, _workspace(), repo)
+        return await _git_call(git_service.status, _workspace(), repo)
     except Exception as exc:
         raise _git_error(exc) from exc
 
@@ -113,7 +163,7 @@ async def api_git_status(repo: str = ""):
 async def api_git_init(body: RepoRequest):
     _require_write()
     try:
-        return await run_in_threadpool(git_service.init, _workspace(), body.repo)
+        return await _git_call(git_service.init, _workspace(), body.repo)
     except Exception as exc:
         raise _git_error(exc) from exc
 
@@ -121,7 +171,7 @@ async def api_git_init(body: RepoRequest):
 @router.get("/diff")
 async def api_git_diff(repo: str = "", staged: bool = False):
     try:
-        return await run_in_threadpool(git_service.diff, _workspace(), repo, staged=staged)
+        return await _git_call(git_service.diff, _workspace(), repo, staged=staged)
     except Exception as exc:
         raise _git_error(exc) from exc
 
@@ -129,7 +179,7 @@ async def api_git_diff(repo: str = "", staged: bool = False):
 @router.get("/log")
 async def api_git_log(repo: str = "", limit: int = Query(default=20, ge=1, le=50)):
     try:
-        return await run_in_threadpool(git_service.log, _workspace(), repo, limit=limit)
+        return await _git_call(git_service.log, _workspace(), repo, limit=limit)
     except Exception as exc:
         raise _git_error(exc) from exc
 
@@ -137,7 +187,7 @@ async def api_git_log(repo: str = "", limit: int = Query(default=20, ge=1, le=50
 @router.get("/branches")
 async def api_git_branches(repo: str = ""):
     try:
-        return await run_in_threadpool(git_service.branches, _workspace(), repo)
+        return await _git_call(git_service.branches, _workspace(), repo)
     except Exception as exc:
         raise _git_error(exc) from exc
 
@@ -146,7 +196,7 @@ async def api_git_branches(repo: str = ""):
 async def api_git_stage(body: FilesRequest):
     _require_write()
     try:
-        return await run_in_threadpool(git_service.stage, _workspace(), body.repo, body.files)
+        return await _git_call(git_service.stage, _workspace(), body.repo, body.files)
     except Exception as exc:
         raise _git_error(exc) from exc
 
@@ -155,7 +205,7 @@ async def api_git_stage(body: FilesRequest):
 async def api_git_unstage(body: FilesRequest):
     _require_write()
     try:
-        return await run_in_threadpool(
+        return await _git_call(
             git_service.unstage, _workspace(), body.repo, body.files
         )
     except Exception as exc:
@@ -166,7 +216,7 @@ async def api_git_unstage(body: FilesRequest):
 async def api_git_commit(body: CommitRequest):
     _require_write()
     try:
-        return await run_in_threadpool(
+        return await _git_call(
             git_service.commit,
             _workspace(),
             body.repo,
@@ -181,7 +231,7 @@ async def api_git_commit(body: CommitRequest):
 async def api_git_checkout(body: CheckoutRequest):
     _require_write()
     try:
-        return await run_in_threadpool(
+        return await _git_call(
             git_service.checkout,
             _workspace(),
             body.repo,
@@ -196,7 +246,7 @@ async def api_git_checkout(body: CheckoutRequest):
 async def api_git_remote(body: RemoteRequest):
     _require_write()
     try:
-        return await run_in_threadpool(
+        return await _git_call(
             git_service.set_remote,
             _workspace(),
             body.repo,
@@ -212,7 +262,7 @@ async def api_git_push(body: PushRequest):
     _require_write()
     token = await run_in_threadpool(github_service.load_token) or ""
     try:
-        return await run_in_threadpool(
+        return await _git_call(
             git_service.push,
             _workspace(),
             body.repo,
@@ -228,7 +278,7 @@ async def api_git_pull(body: PushRequest):
     _require_write()
     token = await run_in_threadpool(github_service.load_token) or ""
     try:
-        return await run_in_threadpool(
+        return await _git_call(
             git_service.pull,
             _workspace(),
             body.repo,
@@ -244,7 +294,7 @@ async def api_git_fetch(body: RepoRequest):
     _require_write()
     token = await run_in_threadpool(github_service.load_token) or ""
     try:
-        return await run_in_threadpool(
+        return await _git_call(
             git_service.fetch, _workspace(), body.repo, token=token
         )
     except Exception as exc:
@@ -258,7 +308,7 @@ async def api_git_clone(body: CloneRequest):
     if body.token:
         token = await run_in_threadpool(github_service.load_token) or ""
     try:
-        return await run_in_threadpool(
+        return await _git_call(
             git_service.clone,
             _workspace(),
             url=body.url,
@@ -267,6 +317,38 @@ async def api_git_clone(body: CloneRequest):
         )
     except Exception as exc:
         raise _git_error(exc) from exc
+
+
+@router.get("/roots")
+async def api_git_roots():
+    return {"roots": [str(item) for item in _extra_roots()]}
+
+
+@router.post("/roots")
+async def api_git_add_root(body: GitRootRequest):
+    _require_admin()
+    try:
+        path = git_service.validate_external_root(body.path)
+    except Exception as exc:
+        raise _git_error(exc) from exc
+    roots = _extra_roots()
+    if path not in roots:
+        roots.append(path)
+        _save_roots(roots)
+    return {"roots": [str(item) for item in roots]}
+
+
+def _remove_root(path: str) -> dict[str, list[str]]:
+    target = os.path.abspath(os.path.expanduser(path))
+    roots = [item for item in _extra_roots() if str(item) != target]
+    _save_roots(roots)
+    return {"roots": [str(item) for item in roots]}
+
+
+@router.delete("/roots")
+async def api_git_remove_root(path: str = Query(min_length=1)):
+    _require_admin()
+    return await run_in_threadpool(_remove_root, path)
 
 
 # ---------------------------------------------------------------------------

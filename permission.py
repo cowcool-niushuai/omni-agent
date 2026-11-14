@@ -40,6 +40,7 @@ class PermissionRisk:
 
 READ_ONLY_TOOLS = {
     "file_read",
+    "document_read",
     "file_list",
     "web_search",
     "rag_search",

@@ -47,6 +47,7 @@ START -> agent -> (需要审批?) -> approval -> tools -> agent -> ... -> END
 原生工具：
 
 - `file_list` / `file_read` / `file_write` / `file_edit`
+- `document_read`（PDF / Word / Excel / PowerPoint / HTML 文本提取）
 - `bash_run` / `python_eval`
 - `web_search`（Tavily / 自托管 SearXNG，返回可引用的搜索结果）
 - `web_fetch`（抓取指定 URL 的正文）
@@ -171,14 +172,18 @@ MCP 的 `command` 本质上会启动本地进程，因此管理接口仅限管�
 设置 → Git 与 GitHub 提供当前工作区仓库和 GitHub 账户的统一管理：
 
 - **本地仓库**：自动扫描工作区内仓库；初始化、分支状态、未提交/已暂存文件、差异、日志、暂存/取消暂存、提交、切换/创建分支。
+- **外部仓库**：管理员可以把工作区外的目录注册为受信仓库根目录，例如 `~/projects` 或 `/mnt/work`；注册后其中的仓库会出现在下拉列表并标记为“外部”。系统目录（`/etc`、`/root`、`/usr`、`/opt` 等）会被拒绝。
 - **远端操作**：设置 `origin`、push、pull（仅 fast-forward）、fetch、clone。
 - **GitHub**：连接 Personal Access Token、浏览/创建仓库、查看分支、管理 Pull Request 和 Issue。
-- **多仓库**：下拉切换工作区内不同仓库；GitHub 仓库可一键设为 `origin` 或克隆到工作区。
+- **多仓库**：下拉切换工作区和已注册外部目录中的仓库；GitHub 仓库可一键设为 `origin` 或克隆到工作区。
 
 API：
 
 ```text
 GET    /api/git/repos
+GET    /api/git/roots
+POST   /api/git/roots
+DELETE /api/git/roots?path=
 GET    /api/git/status?repo=
 GET    /api/git/diff?repo=
 GET    /api/git/log?repo=
@@ -208,7 +213,8 @@ POST   /api/git/github/issues
 
 安全约束：
 
-- Git 仓库必须位于当前项目工作区内；检测到父级仓库在工作区外时按“非仓库”处理，不会访问项目外部仓库。
+- Git 仓库必须位于当前项目工作区内，或位于管理员明确注册的外部仓库根目录中；检测到父级仓库在工作区外且未注册时按“非仓库”处理。
+- 外部仓库目录通过 `project_settings.git_roots` 持久化，只有项目管理员可以添加或移除；系统目录会被拒绝，路径以 `realpath` 校验。
 - 远端 URL 仅允许 HTTPS/SSH，且主机必须在 `GIT_ALLOWED_HOSTS` 中；拒绝带用户名密码的 URL。
 - GitHub Token 只保存在本机 `data/credentials/github_<user>.json`，权限 `0600`，不会返回给前端、不会写入提示词或审计参数。
 - push/pull/fetch 使用临时 `GIT_ASKPASS` 脚本传递 Token，Token 不出现在命令行参数或日志中。
@@ -566,6 +572,32 @@ Agent 会把附件内容视为不可信数据，需要时通过 `file_read`、`p
 - 附件不会自动清理，长期使用建议定期清理 `.uploads`
 - 完全访问模式下附件路径可能指向工作区外，需自行确认安全
 
+### 21. 文档解析：PDF、Word、Excel、PPT
+
+`document_read` 原生工具负责从附件和知识资料中提取文字：
+
+- PDF：优先调用系统 `pdftotext`（支持中文、压缩流和常见排版）；不可用时回退到 PyMuPDF 或内置简易解析器
+- Word `.docx`：读取 `word/document.xml`，保留段落与表格文字
+- Excel `.xlsx` / `.xlsm`：读取共享字符串、工作表名称和单元格内容
+- PowerPoint `.pptx`：按页读取文本框文字
+- HTML 与常见文本格式：去除脚本/样式后提取正文
+
+Agent 在遇到 PDF/Word/Excel/PPT 附件时会先调用：
+
+```text
+document_read(filepath, max_chars=0)
+```
+
+工具输出包含格式、页数/工作表数、提取器、大小和截断标记。文档读取仍然受项目工作区路径限制，并计入只读审计。
+
+限制：
+
+- 扫描版 PDF 没有文本层时，会明确提示先转换为图片再作为附件发送给视觉模型
+- 图片 OCR 优先走视觉模型；只有本机安装 `tesseract` 时 `document_read` 才会做本地 OCR
+- 不还原复杂版式、图表、批注、公式或嵌入对象
+- `.doc`、`.xls`、`.ppt` 等旧二进制格式不支持，请另存为 Office Open XML
+- 默认最多返回 `DOCUMENT_MAX_CHARS` 字符，文件最大 `DOCUMENT_MAX_BYTES`
+
 ## 架构
 
 ```text
@@ -620,6 +652,7 @@ omni-agent/
 ├── permission.py              # 风险分类、审批请求、批量状态更新
 ├── audit.py                   # 工具执行审计（脱敏、统计）
 ├── tools.py                   # 原生工具与 MCP 工具分发
+├── documents.py               # PDF/Word/Excel/PPT 文本提取
 ├── prompts.py                 # 动态系统提示词（稳定+相关记忆注入）
 ├── retrieval.py               # BM25 + 本地向量混合检索（记忆/知识库）
 ├── search.py                  # 联网搜索后端（Tavily / SearXNG，SSRF 校验）
@@ -631,6 +664,9 @@ omni-agent/
 ├── mcp_manager.py             # 官方 MCP SDK 客户端桥接（独立事件循环/超时/重连）
 ├── mcp_config.py              # MCP 配置文件校验、持久化与热重载
 ├── mcp_api.py                 # MCP Server 管理 API（仅管理员）
+├── git_service.py             # 本地 Git 仓库操作与外部根目录
+├── git_api.py                 # Git / GitHub 管理 API
+├── github_service.py          # GitHub PAT 与仓库/PR/Issue
 ├── skills_manager.py          # Skills 扫描与写入
 ├── server.py                  # FastAPI 入口与 SSE
 ├── cli.py                     # Rich CLI / 审批交互 / 审计查询
@@ -740,6 +776,8 @@ make check      # 全部检查
 | `ATTACHMENT_MAX_FILES` | 单次最多附件数 | `5` |
 | `VISION_MAX_IMAGES` | 单次最多发送给模型的图片数 | `4` |
 | `VISION_MAX_IMAGE_BYTES` | 单张视觉图片最大字节数 | `8388608` |
+| `DOCUMENT_MAX_CHARS` | `document_read` 默认最多返回字符数 | `30000` |
+| `DOCUMENT_MAX_BYTES` | `document_read` 可读取的单文件最大字节数 | `31457280` |
 | `SANDBOX_BACKEND` | `auto` / `bwrap` / `process` | `auto` |
 | `SANDBOX_NETWORK` | 沙箱是否允许网络 | `false` |
 | `COMMAND_POLICY_MODE` | `strict` / `permissive` | `strict` |
@@ -807,11 +845,11 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：167 passed
+- `pytest`：173 passed
 - `ruff`：All checks passed
 - `mypy`：Success，15 source files
 
-测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、MCP 配置校验/增删改/启停/测试/热重载、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护、密码哈希、登录与 CSRF、项目隔离、跨项目访问拒绝、viewer 只读、Token 作用域、审批请求项目隔离、最后一个管理员保护、工具参数契约与非法参数拦截、工具错误分类、幂等重试策略、计划规范化与验证规则、验证器修复循环、计划 API 与 UI、全访问模式转换、受保护路径与权限策略 API 往返、附件上传路径/文件名清洗/大小限制、图片多模态内容块与 Anthropic 图片转换、默认推理步数上限。
+测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、MCP 配置校验/增删改/启停/测试/热重载、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护、密码哈希、登录与 CSRF、项目隔离、跨项目访问拒绝、viewer 只读、Token 作用域、审批请求项目隔离、最后一个管理员保护、工具参数契约与非法参数拦截、工具错误分类、幂等重试策略、计划规范化与验证规则、验证器修复循环、计划 API 与 UI、全访问模式转换、受保护路径与权限策略 API 往返、附件上传路径/文件名清洗/大小限制、图片多模态内容块与 Anthropic 图片转换、默认推理步数上限、PDF/Word/Excel/PPT 文本提取、外部 Git 仓库根目录与权限校验。
 
 ---
 

@@ -19,6 +19,7 @@ from urllib.parse import urljoin
 import httpx
 
 import database
+import documents
 import search
 import skills_manager
 from browser import browser_manager
@@ -118,6 +119,15 @@ def tool_file_read(filepath: str, start_line: int = 1, end_line: int = 200) -> s
     if not path.exists() or path.is_dir():
         return f"文件不存在: {filepath}"
 
+    suffix = path.suffix.lower()
+    if suffix in {".pdf", ".docx", ".xlsx", ".xlsm", ".pptx"}:
+        return tool_document_read(filepath)
+    if suffix in documents.IMAGE_EXTENSIONS:
+        return (
+            "这是图片文件。请把图片作为对话附件发送给视觉模型；"
+            "如果本机安装了 tesseract，也可以使用 document_read 做 OCR。"
+        )
+
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
             lines = handle.readlines()
@@ -137,6 +147,33 @@ def tool_file_read(filepath: str, start_line: int = 1, end_line: int = 200) -> s
         return truncate_text("\n".join(output), _settings.tool_max_output_chars)
     except Exception as exc:
         return f"读取文件失败: {exc}"
+
+
+def tool_document_read(filepath: str, max_chars: int = 0) -> str:
+    """Read PDF/Word/Excel/PowerPoint/HTML/text attachments."""
+    try:
+        path = Path(resolve_path(filepath))
+    except PathSecurityError as exc:
+        return str(exc)
+    if not path.exists() or path.is_dir():
+        return f"文件不存在: {filepath}"
+    try:
+        result = documents.read_document(path, max_chars=max_chars)
+    except documents.DocumentError as exc:
+        return f"[文档解析失败] {exc}"
+    except Exception as exc:
+        return f"[文档解析失败] {type(exc).__name__}: {exc}"
+
+    page_info = f"，{result['page_count']} 页/工作表" if result.get("page_count") else ""
+    extractor = f"，提取器 {result['extractor']}" if result.get("extractor") else ""
+    header = (
+        f"--- Document: {result['name']} ({result['kind']}，"
+        f"{result['size']} bytes{page_info}{extractor}) ---"
+    )
+    return truncate_text(
+        f"{header}\n{result['text']}",
+        _settings.tool_max_output_chars,
+    )
 
 
 def _check_write_size(size: int) -> str | None:
@@ -617,6 +654,21 @@ NATIVE_TOOLS_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "document_read",
+            "description": "读取 PDF、Word (.docx)、Excel (.xlsx)、PowerPoint (.pptx)、HTML 或文本文件并提取文字。扫描版 PDF 和图片请作为对话附件发送给视觉模型。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {"type": "string", "description": "工作区内的文档路径。"},
+                    "max_chars": {"type": "integer", "description": "最多返回字符数，0 表示使用服务端配置。"}
+                },
+                "required": ["filepath"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "file_write",
             "description": "在工作区创建新文件或覆盖写入完整文件内容。",
             "parameters": {
@@ -899,6 +951,11 @@ def dispatch_tool(tool_name: str, arguments: dict[str, Any]) -> str:
             arguments.get("filepath", ""),
             int(arguments.get("start_line", 1)),
             int(arguments.get("end_line", 200))
+        )
+    elif tool_name == "document_read":
+        return tool_document_read(
+            arguments.get("filepath", ""),
+            int(arguments.get("max_chars", 0) or 0),
         )
     elif tool_name == "file_write":
         return tool_file_write(arguments.get("filepath", ""), arguments.get("content", ""))

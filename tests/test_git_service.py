@@ -60,6 +60,41 @@ def test_workspace_inside_parent_repo_is_not_a_repo(tmp_path: Path) -> None:
     assert status["clean"] is True
 
 
+def test_external_repository_requires_registered_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    git_service.init(external)
+    _configure_git(external)
+    (external / "note.txt").write_text("external\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(external), "add", "-A"], check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(external), "commit", "-qm", "external"], check=True
+    )
+
+    with pytest.raises(git_service.GitError):
+        git_service.status(workspace, str(external))
+
+    status = git_service.call_with_roots(
+        git_service.status, workspace, str(external), roots=[external]
+    )
+    assert status["is_repo"] is True
+    assert status["external"] is True
+    assert status["branch"] == "master" or status["branch"] == "main"
+
+    repos = git_service.call_with_roots(
+        git_service.list_repos, workspace, roots=[external]
+    )
+    assert any(item["external"] and item["path"] == str(external) for item in repos)
+
+    assert git_service.validate_external_root(str(external)) == external
+    with pytest.raises(git_service.GitError):
+        git_service.validate_external_root("/etc")
+
+
 def test_branch_and_remote_validation() -> None:
     assert git_service._validate_branch("feature/test-1") == "feature/test-1"
     with pytest.raises(git_service.GitError):

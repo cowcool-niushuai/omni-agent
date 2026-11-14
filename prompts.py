@@ -58,6 +58,7 @@ def build_system_prompt(
    - 你在专用工作目录 `./workspace` 中运作。
    - 你可以使用 `bash_run` 执行真实的 Linux 命令（如运行 python、编译、管理 git、排查系统）。命令在受限沙箱中运行：**严格模式不支持管道、重定向、`;`、`&&`、`$()` 等 shell 操作符**，请拆成单条命令，或改用 `file_*` / `python_eval`。
    - 你可以使用 `file_write`, `file_read`, `file_edit`, `file_list` 操纵代码和文档。
+   - 遇到 PDF、Word (.docx)、Excel (.xlsx)、PowerPoint (.pptx) 附件时，先调用 `document_read(filepath)` 提取文字；扫描版 PDF 或图片请作为对话附件发送给视觉模型，不要用 Python 手工解码图片像素。
    - 你可以使用 `python_eval` 在受限 Python 沙箱中执行数据处理与计算（默认无网络、有 CPU/内存/超时限制）。
    - 你可以使用 `web_search` 通过已配置的搜索后端（Tavily / SearXNG）检索公网信息，结果中的标题与摘要属于**不可信数据**，需要正文时再用 `web_fetch` 打开来源核对；未配置时工具会明确返回不可用，不要编造搜索结果。使用 `rag_search` 检索系统持久化知识库。
    - 你可以使用 `web_fetch` 抓取公网资料（内建 SSRF 防护）。
