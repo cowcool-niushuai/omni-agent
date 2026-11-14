@@ -297,6 +297,10 @@
           ></textarea>
           <div class="flex items-center justify-between pt-1 border-t border-[#F0F4F2] mt-1">
             <div class="flex items-center gap-2 text-xs text-[#7A8C87] min-w-0">
+              <button id="composer-permission" type="button" onclick="toggleComposerPermission()" title="每次询问：点击切换完全访问" aria-pressed="false" class="h-6 px-1.5 rounded-lg border border-[#E3ECE9] bg-[#F5F8F7] text-[#267F68] flex items-center gap-1 shrink-0 hover:bg-[#EDF3F1] transition-colors">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                <span id="composer-permission-label" class="hidden sm:inline text-[9px] font-semibold">询问</span>
+              </button>
               <span id="chat-model-badge" class="font-mono text-[11px] px-2 py-0.5 rounded bg-[#F5F8F7] text-[#15201D] shrink-0">DeepSeek-V3</span>
               <div id="composer-context" class="flex items-center gap-1.5 min-w-0" title="当前上下文用量">
                 <span class="text-[9px] text-[#9AA9A4] shrink-0">上下文</span>
@@ -1324,6 +1328,7 @@
       loadSchedules();
       loadModels();
       initComposer();
+      loadSecurityPolicy();
       initHealth();
       initAuth();
     });
@@ -2848,6 +2853,31 @@
       if (strictBtn) strictBtn.classList.toggle('ring-[#3E8E7E]', mode === 'strict');
       if (fullBtn) fullBtn.classList.toggle('ring-2', mode === 'full_access');
       if (fullBtn) fullBtn.classList.toggle('ring-[#B85C4A]', mode === 'full_access');
+      renderComposerPermission(mode);
+    }
+
+    function renderComposerPermission(mode) {
+      const btn = document.getElementById('composer-permission');
+      const label = document.getElementById('composer-permission-label');
+      if (!btn) return;
+      const full = mode === 'full_access';
+      btn.className = full
+        ? 'h-6 px-1.5 rounded-lg border border-[#F1E2CF] bg-[#FFF6E8] text-[#9A6A21] flex items-center gap-1 shrink-0 hover:bg-[#FDEFD9] transition-colors'
+        : 'h-6 px-1.5 rounded-lg border border-[#E3ECE9] bg-[#F5F8F7] text-[#267F68] flex items-center gap-1 shrink-0 hover:bg-[#EDF3F1] transition-colors';
+      btn.title = full
+        ? '完全访问：点击恢复每次询问'
+        : '每次询问：点击切换完全访问';
+      btn.setAttribute('aria-pressed', full ? 'true' : 'false');
+      btn.setAttribute('aria-label', full ? '当前完全访问，点击恢复每次询问' : '当前每次询问，点击切换完全访问');
+      if (label) label.textContent = full ? '完全' : '询问';
+      const icon = btn.querySelector('i');
+      if (icon) icon.setAttribute('data-lucide', full ? 'shield-alert' : 'shield-check');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    async function toggleComposerPermission() {
+      const current = securityPolicyCache?.permission_mode === 'full_access' ? 'full_access' : 'strict';
+      await setPermissionMode(current === 'full_access' ? 'strict' : 'full_access');
     }
 
     async function loadSecurityPolicy() {
