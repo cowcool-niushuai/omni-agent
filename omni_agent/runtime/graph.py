@@ -192,8 +192,13 @@ class AgentRuntime:
                 },
             )
 
+        current_query = ""
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                current_query = str(message.get("content") or "")
+                break
         model_messages: list[dict[str, Any]] = [
-            {"role": "system", "content": prompts.build_system_prompt()}
+            {"role": "system", "content": prompts.build_system_prompt(current_query)}
         ]
         if summary:
             model_messages.append(

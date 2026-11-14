@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     context_max_tokens: int = 24_000
     context_keep_last: int = 12
 
+    # Phase 3: local memory / RAG.
+    memory_injection_limit: int = 6
+    memory_always_include: int = 3
+    memory_search_limit: int = 5
+    memory_max_content_chars: int = 8_000
+    knowledge_search_limit: int = 5
+    knowledge_max_content_chars: int = 20_000
+
     # Phase 2: sandboxed execution and tool quotas.
     sandbox_backend: str = "auto"  # auto | bwrap | process
     sandbox_network: bool = False

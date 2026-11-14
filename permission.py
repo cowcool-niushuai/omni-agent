@@ -41,11 +41,13 @@ READ_ONLY_TOOLS = {
     "file_read",
     "file_list",
     "rag_search",
+    "memory_search",
     "read_skill_doc",
     "mcp_db_schema",
     "mcp_db_stats",
 }
 WRITE_TOOLS = {"file_write", "file_edit"}
+MEMORY_WRITE_TOOLS = {"memory_save", "knowledge_add"}
 
 
 def permission_request_id(session_id: str, tool_call_id: str) -> str:
@@ -107,6 +109,33 @@ def classify_permission(tool_name: str, arguments: dict[str, Any]) -> tuple[str,
             if not target:
                 return PermissionRisk.DENY, "file_edit 缺少 target 参数"
         return PermissionRisk.SAFE_EXEC, "工作区文件操作，允许记录审计"
+
+    # 2b. Agent-managed memory and knowledge are local SQLite writes.
+    if tool_name in MEMORY_WRITE_TOOLS:
+        settings = get_settings()
+        if tool_name == "memory_save":
+            key = str(arguments.get("key", "")).strip()
+            content = str(arguments.get("content", "")).strip()
+            if not key or not content:
+                return PermissionRisk.DENY, "记忆的 key 和 content 不能为空"
+            if len(content) > settings.memory_max_content_chars:
+                return (
+                    PermissionRisk.DENY,
+                    f"记忆内容过长（上限 {settings.memory_max_content_chars} 字符）",
+                )
+        else:
+            title = str(arguments.get("title", "")).strip()
+            content = str(arguments.get("content", "")).strip()
+            if not title or not content:
+                return PermissionRisk.DENY, "知识文档的 title 和 content 不能为空"
+            if len(title) > 200:
+                return PermissionRisk.DENY, "知识文档标题过长（上限 200 字符）"
+            if len(content) > settings.knowledge_max_content_chars:
+                return (
+                    PermissionRisk.DENY,
+                    f"知识文档过长（上限 {settings.knowledge_max_content_chars} 字符）",
+                )
+        return PermissionRisk.SAFE_EXEC, "本地记忆/知识库写入，允许记录审计"
 
     # 3. Shell execution: shared command policy engine
     if tool_name == "bash_run":

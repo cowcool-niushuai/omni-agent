@@ -410,8 +410,63 @@ def tool_web_fetch(url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Knowledge / skills
+# Memory / knowledge
 # ---------------------------------------------------------------------------
+def tool_memory_save(
+    category: str,
+    key: str,
+    content: str,
+    importance: float = 1.0,
+) -> str:
+    if len(key.strip()) > 120:
+        return "保存记忆失败: 键名过长（上限 120 字符）"
+    if len(content.strip()) > _settings.memory_max_content_chars:
+        return (
+            "保存记忆失败: 内容过长"
+            f"（上限 {_settings.memory_max_content_chars} 字符）"
+        )
+    try:
+        memory = database.save_memory(
+            category=category or "fact",
+            key=key,
+            content=content,
+            importance=importance,
+        )
+    except ValueError as exc:
+        return f"保存记忆失败: {exc}"
+    return (
+        f"已保存长期记忆 #{memory['id']} [{memory['category']}] "
+        f"{memory['key']}（重要度 {memory['importance']:.1f}）。"
+    )
+
+
+def tool_memory_search(query: str, limit: int = 5) -> str:
+    safe_limit = max(1, min(int(limit), 20))
+    memories = database.search_memories(query, safe_limit)
+    if not memories:
+        return f"未找到与 '{query}' 相关的长期记忆。"
+    lines = [
+        f"- [#{item['id']}] [{item['category']}] {item['key']}: {item['content']}"
+        for item in memories
+    ]
+    return truncate_text("\n".join(lines), _settings.tool_max_output_chars)
+
+
+def tool_knowledge_add(title: str, content: str, tags: str = "") -> str:
+    if len(title.strip()) > 200:
+        return "写入知识库失败: 标题过长（上限 200 字符）"
+    if len(content.strip()) > _settings.knowledge_max_content_chars:
+        return (
+            "写入知识库失败: 正文过长"
+            f"（上限 {_settings.knowledge_max_content_chars} 字符）"
+        )
+    try:
+        doc = database.add_knowledge(title=title, content=content, tags=tags)
+    except ValueError as exc:
+        return f"写入知识库失败: {exc}"
+    return f"已写入知识库文档 #{doc['id']}：{doc['title']}（标签: {doc['tags'] or '无'}）。"
+
+
 def tool_rag_search(query: str, limit: int = 3) -> str:
     safe_limit = max(1, min(int(limit), 10))
     docs = database.search_knowledge(query, safe_limit)
@@ -555,6 +610,60 @@ NATIVE_TOOLS_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "memory_save",
+            "description": "保存一条长期记忆（用户偏好、稳定事实、任务结论）。相同 category+key 会更新而不是重复插入。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "记忆分类：user_profile / skill_pref / fact / task_summary",
+                    },
+                    "key": {"type": "string", "description": "稳定、简短的记忆键名，例如 'preferred_language'。"},
+                    "content": {"type": "string", "description": "要长期保存的事实或偏好。"},
+                    "importance": {
+                        "type": "number",
+                        "description": "重要度 0-5，默认 1.0；用户明确偏好可设为 3-5。",
+                    },
+                },
+                "required": ["category", "key", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_search",
+            "description": "按主题检索长期记忆，适合在回答用户偏好、历史决策或既有事实前先回忆。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "检索主题或关键词。"},
+                    "limit": {"type": "integer", "description": "返回条数，默认 5。"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "knowledge_add",
+            "description": "把值得复用的资料写入本地知识库（RAG），之后可用 rag_search 检索。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "知识文档标题。"},
+                    "content": {"type": "string", "description": "知识文档正文。"},
+                    "tags": {"type": "string", "description": "逗号分隔的标签，便于检索。"},
+                },
+                "required": ["title", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "read_skill_doc",
             "description": "当遇到专业场景（如数据分析、系统排错、竞品调研）时，读取对应技能的详细操作规范 (SKILL.md)。",
             "parameters": {
@@ -611,7 +720,28 @@ def dispatch_tool(tool_name: str, arguments: dict[str, Any]) -> str:
     elif tool_name == "web_fetch":
         return tool_web_fetch(arguments.get("url", ""))
     elif tool_name == "rag_search":
-        return tool_rag_search(arguments.get("query", ""), int(arguments.get("limit", 3)))
+        return tool_rag_search(
+            arguments.get("query", ""),
+            int(arguments.get("limit", _settings.knowledge_search_limit)),
+        )
+    elif tool_name == "memory_save":
+        return tool_memory_save(
+            str(arguments.get("category", "fact")),
+            str(arguments.get("key", "")),
+            str(arguments.get("content", "")),
+            float(arguments.get("importance", 1.0)),
+        )
+    elif tool_name == "memory_search":
+        return tool_memory_search(
+            str(arguments.get("query", "")),
+            int(arguments.get("limit", _settings.memory_search_limit)),
+        )
+    elif tool_name == "knowledge_add":
+        return tool_knowledge_add(
+            str(arguments.get("title", "")),
+            str(arguments.get("content", "")),
+            str(arguments.get("tags", "")),
+        )
     elif tool_name == "read_skill_doc":
         return tool_read_skill_doc(arguments.get("skill_id", ""))
 

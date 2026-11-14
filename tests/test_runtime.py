@@ -93,7 +93,7 @@ class FakeClient:
 def isolated_db(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(database, "DB_PATH", str(tmp_path / "test.db"))
     database.init_db()
-    monkeypatch.setattr(prompts, "build_system_prompt", lambda: "system")
+    monkeypatch.setattr(prompts, "build_system_prompt", lambda *args, **kwargs: "system")
     monkeypatch.setattr(tools, "get_all_tool_definitions", lambda: [])
     yield tmp_path
 

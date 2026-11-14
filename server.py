@@ -305,14 +305,172 @@ async def api_list_subagents(session_id: Optional[str] = None):
     return database.list_subagents(session_id)
 
 # 9. Memory & Knowledge Base API
+class MemoryUpsertRequest(BaseModel):
+    category: str = "fact"
+    key: str
+    content: str
+    importance: float = 1.0
+
+
+class MemoryUpdateRequest(BaseModel):
+    category: Optional[str] = None
+    key: Optional[str] = None
+    content: Optional[str] = None
+    importance: Optional[float] = None
+
+
+class KnowledgeUpsertRequest(BaseModel):
+    title: str
+    content: str
+    tags: str = ""
+
+
+class KnowledgeUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    tags: Optional[str] = None
+
+
+def _validate_memory(category: str, key: str, content: str) -> tuple[str, str, str]:
+    category = (category or "fact").strip()[:40]
+    key = key.strip()
+    content = content.strip()
+    if not key or not content:
+        raise HTTPException(status_code=400, detail="记忆的 key 和 content 不能为空")
+    if len(key) > 120:
+        raise HTTPException(status_code=400, detail="记忆键名过长（上限 120 字符）")
+    if len(content) > settings.memory_max_content_chars:
+        raise HTTPException(
+            status_code=400,
+            detail=f"记忆内容过长（上限 {settings.memory_max_content_chars} 字符）",
+        )
+    return category or "fact", key, content
+
+
+def _validate_knowledge(title: str, content: str) -> tuple[str, str]:
+    title = title.strip()
+    content = content.strip()
+    if not title or not content:
+        raise HTTPException(status_code=400, detail="知识文档的 title 和 content 不能为空")
+    if len(title) > 200:
+        raise HTTPException(status_code=400, detail="知识文档标题过长（上限 200 字符）")
+    if len(content) > settings.knowledge_max_content_chars:
+        raise HTTPException(
+            status_code=400,
+            detail=f"知识文档过长（上限 {settings.knowledge_max_content_chars} 字符）",
+        )
+    return title, content
+
+
 @app.get("/api/memories")
-async def api_get_memories():
-    return database.get_all_memories()
+async def api_get_memories(
+    q: Optional[str] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    if q and q.strip():
+        return database.search_memories(q, min(limit, 50))
+    return database.get_all_memories(limit)
+
+
+@app.post("/api/memories")
+async def api_create_memory(body: MemoryUpsertRequest):
+    category, key, content = _validate_memory(body.category, body.key, body.content)
+    return database.save_memory(category, key, content, body.importance)
+
+
+@app.patch("/api/memories/{memory_id}")
+async def api_update_memory(memory_id: int, body: MemoryUpdateRequest):
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        memory = database.get_memory(memory_id)
+        if not memory:
+            raise HTTPException(status_code=404, detail="记忆不存在")
+        return memory
+    if "category" in updates and updates["category"] is not None:
+        updates["category"] = str(updates["category"]).strip()[:40] or "fact"
+    if "key" in updates and updates["key"] is not None:
+        key = str(updates["key"]).strip()
+        if not key:
+            raise HTTPException(status_code=400, detail="记忆的 key 不能为空")
+        if len(key) > 120:
+            raise HTTPException(status_code=400, detail="记忆键名过长（上限 120 字符）")
+        updates["key"] = key
+    if "content" in updates and updates["content"] is not None:
+        content = str(updates["content"]).strip()
+        if not content:
+            raise HTTPException(status_code=400, detail="记忆的 content 不能为空")
+        if len(content) > settings.memory_max_content_chars:
+            raise HTTPException(
+                status_code=400,
+                detail=f"记忆内容过长（上限 {settings.memory_max_content_chars} 字符）",
+            )
+        updates["content"] = content
+    memory = database.update_memory(memory_id, **updates)
+    if not memory:
+        raise HTTPException(status_code=404, detail="记忆不存在")
+    return memory
+
+
+@app.delete("/api/memories/{memory_id}")
+async def api_delete_memory(memory_id: int):
+    if not database.delete_memory(memory_id):
+        raise HTTPException(status_code=404, detail="记忆不存在")
+    return {"deleted": True, "id": memory_id}
 
 
 @app.get("/api/knowledge")
-async def api_get_knowledge():
-    return database.search_knowledge("", 50)
+async def api_get_knowledge(
+    q: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    if q and q.strip():
+        return database.search_knowledge(q, limit)
+    return database.list_knowledge(limit, offset)
+
+
+@app.post("/api/knowledge")
+async def api_create_knowledge(body: KnowledgeUpsertRequest):
+    title, content = _validate_knowledge(body.title, body.content)
+    return database.add_knowledge(title, content, body.tags)
+
+
+@app.patch("/api/knowledge/{doc_id}")
+async def api_update_knowledge(doc_id: int, body: KnowledgeUpdateRequest):
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        doc = database.get_knowledge(doc_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="知识文档不存在")
+        return doc
+    if "title" in updates and updates["title"] is not None:
+        title = str(updates["title"]).strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="知识文档的 title 不能为空")
+        if len(title) > 200:
+            raise HTTPException(status_code=400, detail="知识文档标题过长（上限 200 字符）")
+        updates["title"] = title
+    if "content" in updates and updates["content"] is not None:
+        content = str(updates["content"]).strip()
+        if not content:
+            raise HTTPException(status_code=400, detail="知识文档的 content 不能为空")
+        if len(content) > settings.knowledge_max_content_chars:
+            raise HTTPException(
+                status_code=400,
+                detail=f"知识文档过长（上限 {settings.knowledge_max_content_chars} 字符）",
+            )
+        updates["content"] = content
+    doc = database.update_knowledge(doc_id, **updates)
+    if not doc:
+        raise HTTPException(status_code=404, detail="知识文档不存在")
+    return doc
+
+
+@app.delete("/api/knowledge/{doc_id}")
+async def api_delete_knowledge(doc_id: int):
+    if not database.delete_knowledge(doc_id):
+        raise HTTPException(status_code=404, detail="知识文档不存在")
+    return {"deleted": True, "id": doc_id}
 
 # 9b. Audit & security policy API (Phase 2)
 @app.get("/api/audit")

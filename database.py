@@ -3,6 +3,8 @@ import os
 import sqlite3
 from typing import Any, Dict, List, Optional
 
+import retrieval
+
 DB_PATH = os.path.join(os.path.dirname(__file__), "omni_agent.db")
 
 def get_db():
@@ -121,6 +123,9 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_subagents_session ON subagent_tasks(parent_session_id, created_at DESC)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_session ON tool_audit(session_id, id DESC)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON tool_audit(created_at DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_memories_lookup ON memories(category, key)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC, updated_at DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_created ON knowledge_docs(id DESC)")
     
     # Pre-seed some knowledge docs for RAG if empty
     cursor.execute("SELECT count(*) as cnt FROM knowledge_docs")
@@ -204,52 +209,246 @@ def save_message(session_id: str, role: str, content: str, thought: Optional[str
     conn.close()
 
 # Memory operations
-def get_all_memories() -> List[Dict[str, Any]]:
+def get_all_memories(limit: Optional[int] = None) -> List[Dict[str, Any]]:
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM memories ORDER BY importance DESC, updated_at DESC")
+    if limit is None:
+        cursor.execute("SELECT * FROM memories ORDER BY importance DESC, updated_at DESC")
+    else:
+        cursor.execute(
+            "SELECT * FROM memories ORDER BY importance DESC, updated_at DESC LIMIT ?",
+            (max(1, int(limit)),),
+        )
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
-def save_memory(category: str, key: str, content: str, importance: float = 1.0):
+
+def get_memory(memory_id: int) -> Optional[Dict[str, Any]]:
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("""
-    INSERT INTO memories (category, key, content, importance, updated_at) 
-    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-    """, (category, key, content, importance))
+    cursor.execute("SELECT * FROM memories WHERE id = ?", (memory_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def save_memory(
+    category: str,
+    key: str,
+    content: str,
+    importance: float = 1.0,
+) -> Dict[str, Any]:
+    """Upsert a memory by ``(category, key)`` and return the stored row."""
+    category = category.strip()[:40] or "fact"
+    key = key.strip()
+    content = content.strip()
+    if not key or not content:
+        raise ValueError("记忆的 key 和 content 不能为空")
+    try:
+        importance_value = max(0.0, min(float(importance), 5.0))
+    except (TypeError, ValueError):
+        importance_value = 1.0
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id FROM memories WHERE category = ? AND key = ? ORDER BY id ASC LIMIT 1",
+        (category, key),
+    )
+    row = cursor.fetchone()
+    if row:
+        memory_id = int(row["id"])
+        cursor.execute(
+            """
+            UPDATE memories
+            SET content = ?, importance = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (content, importance_value, memory_id),
+        )
+        # Older versions inserted duplicates for the same key; collapse them
+        # now that memory_save is an explicit upsert.
+        cursor.execute(
+            "DELETE FROM memories WHERE category = ? AND key = ? AND id <> ?",
+            (category, key, memory_id),
+        )
+    else:
+        cursor.execute(
+            """
+            INSERT INTO memories (category, key, content, importance, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (category, key, content, importance_value),
+        )
+        memory_id = int(cursor.lastrowid)
+    conn.commit()
+    cursor.execute("SELECT * FROM memories WHERE id = ?", (memory_id,))
+    stored = cursor.fetchone()
+    conn.close()
+    return dict(stored)
+
+
+def update_memory(
+    memory_id: int,
+    *,
+    category: Optional[str] = None,
+    key: Optional[str] = None,
+    content: Optional[str] = None,
+    importance: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    current = get_memory(memory_id)
+    if not current:
+        return None
+    category = (
+        current["category"]
+        if category is None
+        else (category.strip()[:40] or "fact")
+    )
+    key = current["key"] if key is None else key.strip()
+    content = current["content"] if content is None else content.strip()
+    if not key or not content:
+        raise ValueError("记忆的 key 和 content 不能为空")
+    if importance is None:
+        importance_value = float(current["importance"] or 1.0)
+    else:
+        importance_value = max(0.0, min(float(importance), 5.0))
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE memories
+        SET category = ?, key = ?, content = ?, importance = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (category, key, content, importance_value, memory_id),
+    )
+    conn.commit()
+    cursor.execute("SELECT * FROM memories WHERE id = ?", (memory_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def delete_memory(memory_id: int) -> bool:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+    deleted = cursor.rowcount > 0
     conn.commit()
     conn.close()
+    return deleted
 
-# Knowledge / RAG search
-def search_knowledge(query: str, limit: int = 3) -> List[Dict[str, Any]]:
+
+def search_memories(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """Return query-relevant memories, falling back to importance order."""
+    safe_limit = max(1, int(limit))
+    if not query.strip():
+        return get_all_memories(safe_limit)
+    return retrieval.rank_memories(query, get_all_memories(), safe_limit)
+
+
+def relevant_memories(
+    query: str,
+    *,
+    limit: int = 6,
+    always_include: int = 3,
+) -> List[Dict[str, Any]]:
+    return retrieval.relevant_memories(
+        query,
+        get_all_memories(),
+        limit=limit,
+        always_include=always_include,
+    )
+
+
+# Knowledge / RAG
+def list_knowledge(limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
     conn = get_db()
     cursor = conn.cursor()
-    keywords = [k.strip() for k in query.split() if k.strip()]
-    if not keywords:
-        cursor.execute("SELECT * FROM knowledge_docs LIMIT ?", (limit,))
-        rows = cursor.fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
-    
-    # Simple multi-keyword match score
-    cursor.execute("SELECT * FROM knowledge_docs")
-    all_docs = [dict(r) for r in cursor.fetchall()]
+    cursor.execute(
+        "SELECT * FROM knowledge_docs ORDER BY id DESC LIMIT ? OFFSET ?",
+        (max(1, int(limit)), max(0, int(offset))),
+    )
+    rows = cursor.fetchall()
     conn.close()
-    
-    scored = []
-    for d in all_docs:
-        score = 0
-        text = (d["title"] + " " + d["content"] + " " + (d["tags"] or "")).lower()
-        for kw in keywords:
-            if kw.lower() in text:
-                score += 1
-        if score > 0:
-            scored.append((score, d))
-            
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [doc for _, doc in scored[:limit]]
+    return [dict(r) for r in rows]
+
+
+def get_knowledge(doc_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM knowledge_docs WHERE id = ?", (doc_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def add_knowledge(title: str, content: str, tags: str = "") -> Dict[str, Any]:
+    title = title.strip()
+    content = content.strip()
+    if not title or not content:
+        raise ValueError("知识文档的 title 和 content 不能为空")
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO knowledge_docs (title, content, tags) VALUES (?, ?, ?)",
+        (title, content, tags.strip()),
+    )
+    doc_id = int(cursor.lastrowid)
+    conn.commit()
+    cursor.execute("SELECT * FROM knowledge_docs WHERE id = ?", (doc_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row)
+
+
+def update_knowledge(
+    doc_id: int,
+    *,
+    title: Optional[str] = None,
+    content: Optional[str] = None,
+    tags: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    current = get_knowledge(doc_id)
+    if not current:
+        return None
+    title = current["title"] if title is None else title.strip()
+    content = current["content"] if content is None else content.strip()
+    tags = (current.get("tags") or "") if tags is None else tags.strip()
+    if not title or not content:
+        raise ValueError("知识文档的 title 和 content 不能为空")
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE knowledge_docs SET title = ?, content = ?, tags = ? WHERE id = ?",
+        (title, content, tags, doc_id),
+    )
+    conn.commit()
+    cursor.execute("SELECT * FROM knowledge_docs WHERE id = ?", (doc_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def delete_knowledge(doc_id: int) -> bool:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM knowledge_docs WHERE id = ?", (doc_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def search_knowledge(query: str, limit: int = 3) -> List[Dict[str, Any]]:
+    """Search knowledge with BM25 + Chinese bigrams (no embeddings needed)."""
+    safe_limit = max(1, int(limit))
+    if not query.strip():
+        return list_knowledge(safe_limit)
+    return retrieval.rank_knowledge(query, list_knowledge(1000), safe_limit)
 
 # SubAgent operations
 def record_subagent_task(task_id: str, parent_session_id: str, role: str, task: str):

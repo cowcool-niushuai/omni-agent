@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi.testclient import TestClient
 
 import server
@@ -61,3 +63,83 @@ def test_knowledge_endpoint() -> None:
     response = client.get("/api/knowledge")
     assert response.status_code == 200
     assert isinstance(response.json(), list)
+
+
+def test_memory_crud_and_search() -> None:
+    key = f"test_memory_{uuid.uuid4().hex[:8]}"
+    created = client.post(
+        "/api/memories",
+        json={
+            "category": "fact",
+            "key": key,
+            "content": "用户偏好使用本地 BM25 检索中文知识库。",
+            "importance": 3,
+        },
+    )
+    assert created.status_code == 200
+    memory = created.json()
+    memory_id = memory["id"]
+    assert memory["key"] == key
+
+    try:
+        found = client.get("/api/memories", params={"q": "BM25 知识库"})
+        assert found.status_code == 200
+        assert any(item["id"] == memory_id for item in found.json())
+
+        updated = client.patch(
+            f"/api/memories/{memory_id}",
+            json={"content": "更新后的记忆内容。", "importance": 4},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["content"] == "更新后的记忆内容。"
+        assert updated.json()["importance"] == 4
+
+        empty = client.post(
+            "/api/memories",
+            json={"category": "fact", "key": "", "content": "x"},
+        )
+        assert empty.status_code == 400
+    finally:
+        deleted = client.delete(f"/api/memories/{memory_id}")
+        assert deleted.status_code == 200
+
+    assert client.delete(f"/api/memories/{memory_id}").status_code == 404
+
+
+def test_knowledge_crud_and_search() -> None:
+    title = f"测试知识文档 {uuid.uuid4().hex[:8]}"
+    created = client.post(
+        "/api/knowledge",
+        json={
+            "title": title,
+            "content": "这是一篇关于 MCP JSON-RPC 协议与工具调用的测试文档。",
+            "tags": "mcp,test",
+        },
+    )
+    assert created.status_code == 200
+    doc = created.json()
+    doc_id = doc["id"]
+    assert doc["title"] == title
+
+    try:
+        found = client.get("/api/knowledge", params={"q": "JSON-RPC 协议"})
+        assert found.status_code == 200
+        assert any(item["id"] == doc_id for item in found.json())
+
+        updated = client.patch(
+            f"/api/knowledge/{doc_id}",
+            json={"tags": "mcp,updated"},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["tags"] == "mcp,updated"
+
+        empty = client.post(
+            "/api/knowledge",
+            json={"title": "x", "content": ""},
+        )
+        assert empty.status_code == 400
+    finally:
+        deleted = client.delete(f"/api/knowledge/{doc_id}")
+        assert deleted.status_code == 200
+
+    assert client.delete(f"/api/knowledge/{doc_id}").status_code == 404

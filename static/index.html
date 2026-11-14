@@ -295,15 +295,60 @@
 
     <!-- 5. MEMORY TAB -->
     <div id="tab-memory" class="hidden flex-1 flex flex-col h-full p-6 overflow-y-auto">
-      <div class="max-w-3xl mx-auto w-full space-y-6">
-        <div>
-          <h2 class="text-base font-bold text-[#15201D] mb-3">长期记忆</h2>
-          <div id="memories-container" class="grid grid-cols-1 md:grid-cols-2 gap-2"></div>
-        </div>
-        <div>
-          <h2 class="text-base font-bold text-[#15201D] mb-3">知识库</h2>
-          <div id="knowledge-container" class="space-y-2"></div>
-        </div>
+      <div class="max-w-4xl mx-auto w-full space-y-6">
+        <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-base font-bold text-[#15201D]">长期记忆</h2>
+              <p class="text-[11px] text-[#7A8C87] mt-0.5">稳定偏好与关键事实会跨会话保留，并按当前问题自动召回。</p>
+            </div>
+            <span id="memory-count" class="text-[10px] font-mono text-[#7A8C87]"></span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
+            <select id="memory-category" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+              <option value="user_profile">用户画像</option>
+              <option value="skill_pref">技能偏好</option>
+              <option value="fact" selected>事实</option>
+              <option value="task_summary">任务结论</option>
+            </select>
+            <input id="memory-key" placeholder="键名，例如 preferred_language" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs font-mono text-[#15201D]">
+            <input id="memory-importance" type="number" min="0" max="5" step="0.5" value="1" title="重要度 0-5" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+          </div>
+          <textarea id="memory-content" rows="2" placeholder="要长期记住的内容…" class="w-full bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D] resize-y"></textarea>
+          <div class="flex items-center gap-2 mt-2">
+            <div class="relative flex-1">
+              <input id="memory-search" placeholder="检索记忆（BM25 + 中文分词）" onkeydown="if(event.key==='Enter') searchMemories()" class="w-full bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+            </div>
+            <button onclick="searchMemories()" class="px-3 py-2 rounded-xl border border-[#E3ECE9] text-xs text-[#4A5568] hover:bg-[#F2F6F5]">检索</button>
+            <button onclick="resetMemoryForm()" class="px-3 py-2 rounded-xl border border-[#E3ECE9] text-xs text-[#7A8C87] hover:bg-[#F2F6F5]">清空</button>
+            <button onclick="saveMemory()" class="px-3.5 py-2 rounded-xl bg-[#15201D] text-white text-xs font-semibold">保存记忆</button>
+          </div>
+        </section>
+
+        <div id="memories-container" class="grid grid-cols-1 md:grid-cols-2 gap-2"></div>
+
+        <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-base font-bold text-[#15201D]">知识库</h2>
+              <p class="text-[11px] text-[#7A8C87] mt-0.5">Agent 通过 rag_search 检索；支持本地 BM25 与中文 bigram，无需嵌入服务。</p>
+            </div>
+            <span id="knowledge-count" class="text-[10px] font-mono text-[#7A8C87]"></span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+            <input id="knowledge-title" placeholder="文档标题" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+            <input id="knowledge-tags" placeholder="标签，例如 security,mcp" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs font-mono text-[#15201D]">
+          </div>
+          <textarea id="knowledge-content" rows="3" placeholder="文档正文…" class="w-full bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D] resize-y"></textarea>
+          <div class="flex items-center gap-2 mt-2">
+            <input id="knowledge-search" placeholder="检索知识库" onkeydown="if(event.key==='Enter') searchKnowledge()" class="flex-1 bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+            <button onclick="searchKnowledge()" class="px-3 py-2 rounded-xl border border-[#E3ECE9] text-xs text-[#4A5568] hover:bg-[#F2F6F5]">检索</button>
+            <button onclick="resetKnowledgeForm()" class="px-3 py-2 rounded-xl border border-[#E3ECE9] text-xs text-[#7A8C87] hover:bg-[#F2F6F5]">清空</button>
+            <button onclick="saveKnowledge()" class="px-3.5 py-2 rounded-xl bg-[#15201D] text-white text-xs font-semibold">写入知识库</button>
+          </div>
+        </section>
+
+        <div id="knowledge-container" class="space-y-2"></div>
       </div>
     </div>
 
@@ -403,6 +448,10 @@
     let currentSessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
     let isStreaming = false;
     let pendingPermission = false;
+    let memoryCache = {};
+    let knowledgeCache = {};
+    let editingMemoryId = null;
+    let editingKnowledgeId = null;
 
     document.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
@@ -412,6 +461,7 @@
       loadMCPStatus();
       loadWorkspaceFiles();
       loadMemories();
+      loadKnowledge();
       loadModels();
     });
 
@@ -577,6 +627,10 @@
         }
       });
       if (tab === 'audit') loadAudit();
+      if (tab === 'memory') {
+        loadMemories();
+        loadKnowledge();
+      }
       lucide.createIcons();
     }
 
@@ -1107,34 +1161,203 @@
       hljs.highlightElement(codeEl);
     }
 
-    async function loadMemories() {
-      const res = await fetch('/api/memories');
-      const list = await res.json();
-      const box = document.getElementById('memories-container');
-      box.innerHTML = '';
-      list.forEach(m => {
-        const c = document.createElement('div');
-        c.className = "bg-[#FFFFFF] border border-[#E3ECE9] rounded-xl p-3 text-xs shadow-sm";
-        c.innerHTML = `
-          <div class="font-mono text-[11px] text-[#267F68] font-bold mb-1">${m.key}</div>
-          <div class="text-[#4A5568] text-xs leading-relaxed">${m.content}</div>
-        `;
-        box.appendChild(c);
-      });
+    async function loadMemories(q = '') {
+      try {
+        const qs = q ? `?q=${encodeURIComponent(q)}&limit=100` : '?limit=100';
+        const res = await fetch(`/api/memories${qs}`);
+        const list = await res.json();
+        memoryCache = {};
+        const box = document.getElementById('memories-container');
+        document.getElementById('memory-count').innerText = `${list.length} 条`;
+        box.innerHTML = '';
+        if (!list.length) {
+          box.innerHTML = '<div class="text-xs text-[#7A8C87] p-2">没有匹配的长期记忆。</div>';
+          return;
+        }
+        list.forEach(m => {
+          memoryCache[m.id] = m;
+          const c = document.createElement('div');
+          c.className = "bg-[#FFFFFF] border border-[#E3ECE9] rounded-xl p-3 text-xs shadow-sm";
+          c.innerHTML = `
+            <div class="flex items-start justify-between gap-2 mb-1">
+              <div class="font-mono text-[11px] text-[#267F68] font-bold break-all">${escapeHtml(m.key)}</div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <span class="text-[9px] text-[#7A8C87] bg-[#F5F8F7] px-1.5 py-0.5 rounded">${escapeHtml(m.category)}</span>
+                <span class="text-[9px] text-[#C98B4E]" title="重要度">★ ${Number(m.importance || 1).toFixed(1)}</span>
+              </div>
+            </div>
+            <div class="text-[#4A5568] text-xs leading-relaxed whitespace-pre-wrap">${escapeHtml(m.content)}</div>
+            <div class="flex items-center justify-end gap-2 mt-2 pt-2 border-t border-[#F0F5F3]">
+              <button onclick="editMemory(${m.id})" class="text-[10px] text-[#7A8C87] hover:text-[#15201D]">编辑</button>
+              <button onclick="deleteMemory(${m.id})" class="text-[10px] text-[#B4544E] hover:text-[#8F3F3A]">删除</button>
+            </div>
+          `;
+          box.appendChild(c);
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
 
-      const res2 = await fetch('/api/knowledge');
-      const kdocs = await res2.json();
-      const kBox = document.getElementById('knowledge-container');
-      kBox.innerHTML = '';
-      kdocs.forEach(k => {
-        const c = document.createElement('div');
-        c.className = "bg-[#FFFFFF] border border-[#E3ECE9] rounded-xl p-3 text-xs shadow-sm";
-        c.innerHTML = `
-          <div class="font-bold text-[#15201D] text-xs mb-1">${k.title}</div>
-          <div class="text-[#7A8C87] text-xs leading-relaxed">${k.content}</div>
-        `;
-        kBox.appendChild(c);
-      });
+    function resetMemoryForm() {
+      editingMemoryId = null;
+      document.getElementById('memory-category').value = 'fact';
+      document.getElementById('memory-key').value = '';
+      document.getElementById('memory-content').value = '';
+      document.getElementById('memory-importance').value = '1';
+    }
+
+    function editMemory(id) {
+      const m = memoryCache[id];
+      if (!m) return;
+      editingMemoryId = id;
+      document.getElementById('memory-category').value = m.category;
+      document.getElementById('memory-key').value = m.key;
+      document.getElementById('memory-content').value = m.content;
+      document.getElementById('memory-importance').value = m.importance;
+      document.getElementById('memory-content').focus();
+    }
+
+    async function saveMemory() {
+      const payload = {
+        category: document.getElementById('memory-category').value,
+        key: document.getElementById('memory-key').value.trim(),
+        content: document.getElementById('memory-content').value.trim(),
+        importance: Number(document.getElementById('memory-importance').value || 1)
+      };
+      if (!payload.key || !payload.content) {
+        alert('请填写键名和记忆内容');
+        return;
+      }
+      try {
+        const res = await fetch(
+          editingMemoryId ? `/api/memories/${editingMemoryId}` : '/api/memories',
+          {
+            method: editingMemoryId ? 'PATCH' : 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+          }
+        );
+        if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+        resetMemoryForm();
+        document.getElementById('memory-search').value = '';
+        loadMemories();
+      } catch (e) {
+        alert('保存记忆失败: ' + e.message);
+      }
+    }
+
+    async function deleteMemory(id) {
+      if (!confirm('确定删除这条长期记忆？')) return;
+      try {
+        const res = await fetch(`/api/memories/${id}`, {method: 'DELETE'});
+        if (!res.ok && res.status !== 404) throw new Error(res.statusText);
+        if (editingMemoryId === id) resetMemoryForm();
+        loadMemories(document.getElementById('memory-search').value.trim());
+      } catch (e) {
+        alert('删除记忆失败: ' + e.message);
+      }
+    }
+
+    function searchMemories() {
+      loadMemories(document.getElementById('memory-search').value.trim());
+    }
+
+    async function loadKnowledge(q = '') {
+      try {
+        const qs = q ? `?q=${encodeURIComponent(q)}&limit=100` : '?limit=100';
+        const res = await fetch(`/api/knowledge${qs}`);
+        const docs = await res.json();
+        knowledgeCache = {};
+        const box = document.getElementById('knowledge-container');
+        document.getElementById('knowledge-count').innerText = `${docs.length} 篇`;
+        box.innerHTML = '';
+        if (!docs.length) {
+          box.innerHTML = '<div class="text-xs text-[#7A8C87] p-2">没有匹配的知识文档。</div>';
+          return;
+        }
+        docs.forEach(k => {
+          knowledgeCache[k.id] = k;
+          const c = document.createElement('div');
+          c.className = "bg-[#FFFFFF] border border-[#E3ECE9] rounded-xl p-3 text-xs shadow-sm";
+          c.innerHTML = `
+            <div class="flex items-start justify-between gap-2 mb-1">
+              <div class="font-bold text-[#15201D] text-xs">${escapeHtml(k.title)}</div>
+              <span class="text-[9px] font-mono text-[#7A8C87] shrink-0">#${k.id}</span>
+            </div>
+            <div class="text-[#7A8C87] text-xs leading-relaxed whitespace-pre-wrap">${escapeHtml(k.content)}</div>
+            ${k.tags ? `<div class="text-[10px] font-mono text-[#267F68] mt-2">${escapeHtml(k.tags)}</div>` : ''}
+            <div class="flex items-center justify-end gap-2 mt-2 pt-2 border-t border-[#F0F5F3]">
+              <button onclick="editKnowledge(${k.id})" class="text-[10px] text-[#7A8C87] hover:text-[#15201D]">编辑</button>
+              <button onclick="deleteKnowledge(${k.id})" class="text-[10px] text-[#B4544E] hover:text-[#8F3F3A]">删除</button>
+            </div>
+          `;
+          box.appendChild(c);
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function resetKnowledgeForm() {
+      editingKnowledgeId = null;
+      document.getElementById('knowledge-title').value = '';
+      document.getElementById('knowledge-tags').value = '';
+      document.getElementById('knowledge-content').value = '';
+    }
+
+    function editKnowledge(id) {
+      const k = knowledgeCache[id];
+      if (!k) return;
+      editingKnowledgeId = id;
+      document.getElementById('knowledge-title').value = k.title;
+      document.getElementById('knowledge-tags').value = k.tags || '';
+      document.getElementById('knowledge-content').value = k.content;
+      document.getElementById('knowledge-content').focus();
+    }
+
+    async function saveKnowledge() {
+      const payload = {
+        title: document.getElementById('knowledge-title').value.trim(),
+        content: document.getElementById('knowledge-content').value.trim(),
+        tags: document.getElementById('knowledge-tags').value.trim()
+      };
+      if (!payload.title || !payload.content) {
+        alert('请填写文档标题和正文');
+        return;
+      }
+      try {
+        const res = await fetch(
+          editingKnowledgeId ? `/api/knowledge/${editingKnowledgeId}` : '/api/knowledge',
+          {
+            method: editingKnowledgeId ? 'PATCH' : 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+          }
+        );
+        if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+        resetKnowledgeForm();
+        document.getElementById('knowledge-search').value = '';
+        loadKnowledge();
+      } catch (e) {
+        alert('写入知识库失败: ' + e.message);
+      }
+    }
+
+    async function deleteKnowledge(id) {
+      if (!confirm('确定删除这篇知识文档？')) return;
+      try {
+        const res = await fetch(`/api/knowledge/${id}`, {method: 'DELETE'});
+        if (!res.ok && res.status !== 404) throw new Error(res.statusText);
+        if (editingKnowledgeId === id) resetKnowledgeForm();
+        loadKnowledge(document.getElementById('knowledge-search').value.trim());
+      } catch (e) {
+        alert('删除知识文档失败: ' + e.message);
+      }
+    }
+
+    function searchKnowledge() {
+      loadKnowledge(document.getElementById('knowledge-search').value.trim());
     }
 
     async function loadAudit() {

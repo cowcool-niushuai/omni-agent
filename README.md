@@ -5,7 +5,7 @@
 
 OmniAgent 是一个**单机单用户**的通用智能体应用：它不只回答问题，还能在工作区里读写文件、执行命令、运行 Python、调用 MCP 工具，并在高危操作前暂停，等待你批准后继续执行。
 
-项目当前处于 **Phase 2（沙箱与工具策略）完成** 的状态，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
+项目当前处于 **Phase 3（能力扩展）进行中** 的状态：Phase 2 的沙箱、命令策略、SSRF 与审计已完成，Phase 3 的本地 Memory/RAG 已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
 
 ---
 
@@ -106,9 +106,14 @@ Web 控制台新增“审计记录”页，也可以调用 `GET /api/audit`、`G
 ### 9. 会话、记忆与知识库
 
 - 会话与消息持久化到 SQLite
-- 长期记忆（memories）注入系统提示词
-- 知识库检索作为 Agent 工具使用，而不是把 RAG 当成唯一能力
+- **本地 BM25 检索**：`omni_agent/retrieval.py` 提供中英文混合分词与排序，中文按 unigram + bigram 处理，不依赖嵌入服务或网络
+- **查询相关记忆注入**：系统提示词固定注入最重要的 3 条用户画像，再按当前问题召回相关记忆（默认上限 6 条）
+- **记忆自动落库**：Agent 可通过 `memory_save` 保存用户偏好/稳定事实/任务结论，通过 `memory_search` 回忆；相同 `category+key` 会更新而不是重复插入
+- **知识库可写**：`knowledge_add` 写入文档，`rag_search` 用 BM25 检索；Web UI 支持新增、编辑、删除、搜索
+- **REST API**：`GET/POST /api/memories`、`PATCH/DELETE /api/memories/{id}`、`GET/POST /api/knowledge`、`PATCH/DELETE /api/knowledge/{id}`，均支持 `?q=` 检索
 - 工作区文件可在 Web UI 中浏览和预览
+
+记忆与知识库都存放在本地 SQLite（`omni_agent.db`）。记忆写入走统一权限分类：`memory_search` 只读放行，`memory_save` / `knowledge_add` 作为本地安全写入自动执行并进入审计日志。
 
 ---
 
@@ -162,7 +167,8 @@ omni-agent/
 ├── permission.py              # 风险分类、审批请求、批量状态更新
 ├── audit.py                   # 工具执行审计（脱敏、统计）
 ├── tools.py                   # 原生工具与 MCP 工具分发
-├── prompts.py                 # 动态系统提示词
+├── prompts.py                 # 动态系统提示词（稳定+相关记忆注入）
+├── retrieval.py               # BM25 + 中英文混合分词（记忆/知识库）
 ├── database.py                # SQLite 持久化（含 tool_audit 表）
 ├── model_manager.py           # 多 provider 模型管理（密钥只从环境变量读取）
 ├── mcp_manager.py             # MCP stdio 客户端（超时/重连/并发锁）
@@ -229,6 +235,10 @@ make check      # 全部检查
 | `DATA_DIR` | checkpoint 等数据目录 | `./data` |
 | `CONTEXT_MAX_TOKENS` | 上下文压缩阈值 | `24000` |
 | `CONTEXT_KEEP_LAST` | 压缩时保留的最近消息数 | `12` |
+| `MEMORY_INJECTION_LIMIT` | 系统提示词注入记忆上限 | `6` |
+| `MEMORY_ALWAYS_INCLUDE` | 固定注入的高重要度记忆数 | `3` |
+| `MEMORY_MAX_CONTENT_CHARS` | 单条记忆长度上限 | `8000` |
+| `KNOWLEDGE_MAX_CONTENT_CHARS` | 单篇知识文档长度上限 | `20000` |
 | `MAX_ITERATIONS` | 单轮最大推理步数 | `8` |
 | `SANDBOX_BACKEND` | `auto` / `bwrap` / `process` | `auto` |
 | `SANDBOX_NETWORK` | 沙箱是否允许网络 | `false` |
@@ -274,11 +284,11 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：71 passed
+- `pytest`：79 passed
 - `ruff`：All checks passed
 - `mypy`：Success，12 source files
 
-测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、checkpoint 恢复、上下文压缩、审计脱敏与统计。
+测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回。
 
 ---
 
@@ -289,7 +299,7 @@ uv run mypy
 | Phase 0 | ✅ 完成 | 安全止血与工程底座：路径安全、密钥治理、日志、测试、CI |
 | Phase 1 | ✅ 完成 | LangGraph 内核：真流式、审批恢复、checkpoint、上下文压缩、并行工具、子代理 |
 | Phase 2 | ✅ 完成 | 沙箱与工具策略：bubblewrap/进程隔离、命令白名单、SSRF、资源配额、审计 |
-| Phase 3 | 计划中 | 能力扩展：Memory/RAG、官方 MCP SDK、Skills、定时任务、浏览器 |
+| Phase 3 | 🚧 进行中 | 能力扩展：Memory/RAG（✅ 本地 BM25 + 记忆/知识 CRUD + UI）、官方 MCP SDK、Skills、定时任务、浏览器 |
 | Phase 4 | 计划中 | 单机交付：本地数据目录、密钥加密、桌面壳/安装包、自动更新、可观测性 |
 | Phase 5 | 计划中 | 开源发布：LICENSE、文档、示例、CI Release |
 
