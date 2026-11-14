@@ -217,7 +217,9 @@ def status(workspace: Path, relative: str = "") -> Dict[str, Any]:
     for line in proc.stdout.splitlines():
         if line.startswith("## "):
             header = line[3:]
-            if "..." in header:
+            if header.startswith("No commits yet on "):
+                branch = header[len("No commits yet on ") :].strip()
+            elif "..." in header:
                 local, rest = header.split("...", 1)
                 branch = local
                 upstream = rest.split(" ", 1)[0]

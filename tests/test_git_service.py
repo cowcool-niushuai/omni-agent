@@ -33,6 +33,7 @@ def test_init_status_stage_and_commit(tmp_path: Path) -> None:
 
     status = git_service.status(repo)
     assert status["is_repo"] is True
+    assert status["branch"] not in {"", "No"}
     assert status["clean"] is False
     assert status["files"][0]["path"] == "hello.txt"
     assert status["files"][0]["untracked"] is True
