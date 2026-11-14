@@ -127,6 +127,8 @@ class Settings(BaseSettings):
     git_max_diff_chars: int = 200000
 
     # Phase 3: headless browser automation.
+    desktop_app_launch_enabled: bool = True
+    desktop_app_list_limit: int = 80
     browser_enabled: bool = True
     browser_headless: bool = True
     browser_timeout_seconds: float = 20.0

@@ -74,6 +74,11 @@ class WebSearchArgs(_Args):
     max_results: int = Field(default=5, ge=1, le=10)
 
 
+class DesktopAppArgs(_Args):
+    action: Literal["list", "open"] = "list"
+    name: str = ""
+
+
 class BrowserArgs(_Args):
     action: str = Field(min_length=1)
     url: str = ""
@@ -145,6 +150,7 @@ NATIVE_MODELS: dict[str, type[BaseModel]] = {
     "python_eval": PythonEvalArgs,
     "web_fetch": WebFetchArgs,
     "web_search": WebSearchArgs,
+    "desktop_app": DesktopAppArgs,
     "browser": BrowserArgs,
     "memory_save": MemorySaveArgs,
     "memory_search": MemorySearchArgs,

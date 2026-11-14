@@ -19,6 +19,7 @@ from urllib.parse import urljoin
 import httpx
 
 import database
+import desktop_apps
 import documents
 import search
 import skills_manager
@@ -512,6 +513,32 @@ def tool_web_search(query: str, max_results: int = 0) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Desktop applications
+# ---------------------------------------------------------------------------
+def tool_desktop_app(action: str = "list", name: str = "") -> str:
+    normalized = (action or "list").strip().lower()
+    if normalized in {"list", "apps"}:
+        apps = desktop_apps.list_apps()
+        if not apps:
+            return "没有发现可启动的桌面应用。"
+        lines = [f"[{item['kind']}] {item['name']} ({item['id']})" for item in apps]
+        return truncate_text(
+            "已安装的桌面应用：\n" + "\n".join(lines),
+            _settings.tool_max_output_chars,
+        )
+    if normalized in {"open", "launch"}:
+        try:
+            result = desktop_apps.launch_app(name)
+        except desktop_apps.AppLaunchError as exc:
+            return f"[启动失败] {exc}"
+        return (
+            f"已启动桌面应用：{result['name']} ({result['id']})，"
+            f"进程 PID {result['pid']}。"
+        )
+    return "[参数错误] action 只能是 list 或 open。"
+
+
+# ---------------------------------------------------------------------------
 # Browser automation
 # ---------------------------------------------------------------------------
 def tool_browser(
@@ -756,6 +783,28 @@ NATIVE_TOOLS_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "desktop_app",
+            "description": "查看或启动本机已安装的桌面应用（QQ、微信、浏览器、IDE 等）。list 只读；open 会启动图形应用，需要人工审批。这个工具在主机桌面会话中运行，不使用 bwrap 沙箱。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "open"],
+                        "description": "list 列出已安装应用；open 按名称启动应用。"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "要打开的应用名称或 Flatpak ID，例如 qq、微信、com.qq.QQ。"
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "browser",
             "description": "无头浏览器自动化。只读操作（goto/text/screenshot/back/forward/reload/wait/status/close）自动执行；click/fill/press 会修改网页状态，需要人工审批。仅允许公网 HTTP/HTTPS，内建 SSRF 防护；不支持执行 JavaScript。",
             "parameters": {
@@ -971,6 +1020,11 @@ def dispatch_tool(tool_name: str, arguments: dict[str, Any]) -> str:
         return tool_web_search(
             str(arguments.get("query", "")),
             int(arguments.get("max_results", 0) or 0),
+        )
+    elif tool_name == "desktop_app":
+        return tool_desktop_app(
+            str(arguments.get("action", "list")),
+            str(arguments.get("name", "")),
         )
     elif tool_name == "browser":
         return tool_browser(

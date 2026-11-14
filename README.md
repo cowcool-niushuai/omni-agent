@@ -241,6 +241,27 @@ POST   /api/git/github/issues
 uv run playwright install chromium
 ```
 
+### 12.1 桌面应用启动
+
+普通 `bash_run` 运行在 bwrap 沙箱中，没有用户的图形会话，因此无法打开 QQ、微信这类桌面软件。新增的 `desktop_app` 工具专门处理这个场景：
+
+- `desktop_app(action="list")`：列出已安装的 Flatpak 应用和 `.desktop` 应用
+- `desktop_app(action="open", name="qq")`：在主机桌面会话中启动应用
+- 支持 Flatpak ID、应用名称和常用别名，例如 `qq`、`微信`、`chrome`
+- 启动使用固定 argv（`flatpak run` / `gtk-launch` / `gio launch`），不经过 shell
+- 启动动作属于 `ASK_USER`，需要人工确认；`list` 只读放行
+- 后端没有 `DISPLAY` / `WAYLAND_DISPLAY` 时会明确提示无法打开，而不是假装启动
+- 工具调用会写入审计日志
+
+配置：
+
+```env
+DESKTOP_APP_LAUNCH_ENABLED=true
+DESKTOP_APP_LIST_LIMIT=80
+```
+
+限制：这是本地桌面能力，远程部署的后端只能打开服务器自己的图形会话；Flatpak 应用需要当前用户已经安装并完成首次启动。
+
 ### 13. 多厂商模型适配
 
 模型体系参考 OpenCode 的 **Provider / Model Registry** 形式，但保持 Python 侧实现简洁：
@@ -874,7 +895,7 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：176 passed
+- `pytest`：181 passed
 - `ruff`：All checks passed
 - `mypy`：Success，15 source files
 

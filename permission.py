@@ -253,6 +253,24 @@ def classify_permission(tool_name: str, arguments: dict[str, Any]) -> tuple[str,
             return PermissionRisk.SAFE_EXEC, "浏览器截图写入工作区，允许记录审计"
         return PermissionRisk.ALLOW, "浏览器只读操作已放行"
 
+    # 5c. Desktop app launching is a host GUI action, not a sandbox command.
+    if tool_name == "desktop_app":
+        settings = get_settings()
+        if not settings.desktop_app_launch_enabled:
+            return PermissionRisk.DENY, "桌面应用启动已在配置中禁用"
+        action = str(arguments.get("action", "list")).strip().lower()
+        if action == "list":
+            return PermissionRisk.ALLOW, "只读列出已安装桌面应用"
+        if action != "open":
+            return PermissionRisk.DENY, f"不支持的桌面应用操作: {action or '(空)'}"
+        name = str(arguments.get("name", "")).strip()
+        if not name:
+            return PermissionRisk.DENY, "请指定要打开的桌面应用"
+        return (
+            PermissionRisk.ASK_USER,
+            f"即将在主机桌面会话启动应用「{name}」，需要人工确认",
+        )
+
     # 6. MCP SQL Query check
     if tool_name == "mcp_sql_query":
         ok, reason = validate_sql_readonly(str(arguments.get("query", "")))
