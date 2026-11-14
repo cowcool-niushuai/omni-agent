@@ -210,56 +210,28 @@
             </div>
           </div>
 
-          <!-- 快捷操作卡片 -->
-          <div class="w-full grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-            <div onclick="sendQuickPrompt('写一个快速排序算法并保存为 quick_sort.py，运行测试并输出结果')" class="group flex items-start gap-3 p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E3ECE9] hover:border-[#B8CCC6] hover:shadow-sm cursor-pointer text-[#15201D] transition-all">
-              <div class="w-8 h-8 rounded-xl bg-[#E9F6F1] flex items-center justify-center shrink-0">
-                <i data-lucide="code-2" class="w-4 h-4 text-[#267F68]"></i>
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="font-semibold leading-tight">编写并执行 Python 脚本</div>
-                <div class="text-[10px] text-[#7A8C87] mt-1 leading-relaxed">生成代码、运行测试并返回结果</div>
-              </div>
-              <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 mt-0.5 text-[#9AA9A4] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"></i>
-            </div>
-            <div onclick="sendQuickPrompt('通过 MCP 工具查询当前系统数据库有哪些表，统计数据行数并以Markdown表格输出')" class="group flex items-start gap-3 p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E3ECE9] hover:border-[#B8CCC6] hover:shadow-sm cursor-pointer text-[#15201D] transition-all">
-              <div class="w-8 h-8 rounded-xl bg-[#EAF2FC] flex items-center justify-center shrink-0">
-                <i data-lucide="database" class="w-4 h-4 text-[#3975B9]"></i>
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="font-semibold leading-tight">查询数据库结构与统计</div>
-                <div class="text-[10px] text-[#7A8C87] mt-1 leading-relaxed">通过 MCP 工具读取表结构和行数</div>
-              </div>
-              <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 mt-0.5 text-[#9AA9A4] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"></i>
-            </div>
-            <div onclick="sendQuickPrompt('派发一个专职【算法调研员】子智能体对比快排与归并，派发一个【实现专家】编写脚本测试，最后汇总')" class="group flex items-start gap-3 p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E3ECE9] hover:border-[#B8CCC6] hover:shadow-sm cursor-pointer text-[#15201D] transition-all">
-              <div class="w-8 h-8 rounded-xl bg-[#F4EDFA] flex items-center justify-center shrink-0">
-                <i data-lucide="git-branch" class="w-4 h-4 text-[#A576C2]"></i>
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="font-semibold leading-tight">派发子智能体协同</div>
-                <div class="text-[10px] text-[#7A8C87] mt-1 leading-relaxed">拆分任务并行执行，最后统一汇总</div>
-              </div>
-              <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 mt-0.5 text-[#9AA9A4] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"></i>
-            </div>
-            <div onclick="sendQuickPrompt('加载系统健康诊断技能 (system_diagnostics)，查看当前 Linux 服务器的内存使用与进程状态')" class="group flex items-start gap-3 p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E3ECE9] hover:border-[#B8CCC6] hover:shadow-sm cursor-pointer text-[#15201D] transition-all">
-              <div class="w-8 h-8 rounded-xl bg-[#FCF3E6] flex items-center justify-center shrink-0">
-                <i data-lucide="activity" class="w-4 h-4 text-[#C98B4E]"></i>
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="font-semibold leading-tight">系统健康诊断</div>
-                <div class="text-[10px] text-[#7A8C87] mt-1 leading-relaxed">检查内存、进程与运行环境状态</div>
-              </div>
-              <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 mt-0.5 text-[#9AA9A4] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"></i>
-            </div>
-            <div onclick="sendQuickPrompt('请执行 rm -rf ./workspace/test 试一试')" class="sm:col-span-2 group flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-[#FFFBF6] border border-[#F1E2CF] hover:border-[#E4C9A6] cursor-pointer text-[#8A5A2B] transition-all">
-              <i data-lucide="shield-alert" class="w-4 h-4 text-[#C98B4E] shrink-0"></i>
-              <div class="min-w-0 flex-1">
-                <span class="font-semibold">测试高危指令安全拦截</span>
-                <span class="text-[10px] text-[#A87A4E] ml-2">验证审批、沙箱与审计链路</span>
-              </div>
-              <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 text-[#C98B4E] opacity-60 group-hover:opacity-100 transition-opacity shrink-0"></i>
-            </div>
+          <!-- 快捷操作：紧凑胶囊 -->
+          <div class="w-full flex flex-wrap items-center justify-center gap-1.5 text-[11px]">
+            <button onclick="sendQuickPrompt('写一个快速排序算法并保存为 quick_sort.py，运行测试并输出结果')" title="生成代码、运行测试并返回结果" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FFFFFF] border border-[#E3ECE9] hover:border-[#B8CCC6] hover:bg-[#FBFDFC] text-[#15201D] transition-all">
+              <i data-lucide="code-2" class="w-3.5 h-3.5 text-[#267F68]"></i>
+              <span class="whitespace-nowrap">Python 脚本</span>
+            </button>
+            <button onclick="sendQuickPrompt('通过 MCP 工具查询当前系统数据库有哪些表，统计数据行数并以Markdown表格输出')" title="通过 MCP 工具读取表结构和行数" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FFFFFF] border border-[#E3ECE9] hover:border-[#B8CCC6] hover:bg-[#FBFDFC] text-[#15201D] transition-all">
+              <i data-lucide="database" class="w-3.5 h-3.5 text-[#3975B9]"></i>
+              <span class="whitespace-nowrap">MCP 数据库</span>
+            </button>
+            <button onclick="sendQuickPrompt('派发一个专职【算法调研员】子智能体对比快排与归并，派发一个【实现专家】编写脚本测试，最后汇总')" title="拆分任务并行执行，最后统一汇总" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FFFFFF] border border-[#E3ECE9] hover:border-[#B8CCC6] hover:bg-[#FBFDFC] text-[#15201D] transition-all">
+              <i data-lucide="git-branch" class="w-3.5 h-3.5 text-[#A576C2]"></i>
+              <span class="whitespace-nowrap">子智能体</span>
+            </button>
+            <button onclick="sendQuickPrompt('加载系统健康诊断技能 (system_diagnostics)，查看当前 Linux 服务器的内存使用与进程状态')" title="检查内存、进程与运行环境状态" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FFFFFF] border border-[#E3ECE9] hover:border-[#B8CCC6] hover:bg-[#FBFDFC] text-[#15201D] transition-all">
+              <i data-lucide="activity" class="w-3.5 h-3.5 text-[#C98B4E]"></i>
+              <span class="whitespace-nowrap">系统诊断</span>
+            </button>
+            <button onclick="sendQuickPrompt('请执行 rm -rf ./workspace/test 试一试')" title="验证审批、沙箱与审计链路" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FFFBF6] border border-[#F1E2CF] hover:border-[#E4C9A6] text-[#8A5A2B] transition-all">
+              <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-[#C98B4E]"></i>
+              <span class="whitespace-nowrap">安全拦截测试</span>
+            </button>
           </div>
         </div>
 
