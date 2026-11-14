@@ -1835,15 +1835,25 @@
         toast('当前会话还没有可压缩的历史，先发送一条消息。', 'error');
         return;
       }
+      const pending = toast('正在压缩上下文，请稍候…', 'info', 30000);
       try {
         const res = await fetch(`/api/sessions/${encodeURIComponent(currentSessionId)}/compact`, {
           method: 'POST',
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.detail || '上下文压缩失败');
-        toast(data.message || '上下文已压缩', data.dropped ? 'success' : undefined);
+        pending.remove();
+        if (data.dropped) {
+          toast(`已压缩 ${data.dropped} 条较早消息，保留最近 4 条。`, 'success');
+        } else {
+          const total = Number(data.total_messages || 0);
+          toast(total
+            ? `当前只有 ${total} 条消息，保留最近 4 条，无需压缩。`
+            : '当前没有可压缩的历史消息。');
+        }
         await refreshComposerUsage();
       } catch (err) {
+        pending.remove();
         toast(err.message || '上下文压缩失败', 'error');
       }
     }
@@ -3515,7 +3525,7 @@
       } catch (e) {}
     }
 
-    function toast(message, type = 'info') {
+    function toast(message, type = 'info', duration = 2800) {
       const container = document.getElementById('toast-container');
       const el = document.createElement('div');
       const styles = type === 'error'
@@ -3530,7 +3540,8 @@
         el.style.opacity = '0';
         el.style.transition = 'opacity .2s';
         setTimeout(() => el.remove(), 220);
-      }, 2800);
+      }, Math.max(500, duration));
+      return el;
     }
 
     function parseServerTime(value) {

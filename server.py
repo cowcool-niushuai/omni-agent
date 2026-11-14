@@ -692,7 +692,7 @@ async def api_get_session_plan(session_id: str):
 async def api_compact_session(session_id: str):
     _require_session(session_id)
     _require_write()
-    return await agent_core.compact_session(session_id)
+    return await agent_core.compact_session(session_id, keep_last=4)
 
 
 class UploadRequest(BaseModel):
