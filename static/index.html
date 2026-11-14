@@ -145,6 +145,31 @@
           <span class="text-[11px] text-[#7A8C87] font-mono truncate hidden sm:inline" id="current-session-id"></span>
         </div>
         <div class="flex items-center gap-1">
+          <div class="relative" id="stats-wrap">
+            <button id="stats-toggle" onclick="toggleStatsPanel(event)" class="px-2.5 py-1.5 rounded-lg text-[#7A8C87] hover:text-[#15201D] hover:bg-[#EDF3F1] transition-all flex items-center gap-1" title="运行数据" aria-label="运行数据" aria-expanded="false">
+              <i data-lucide="gauge" class="w-3.5 h-3.5"></i>
+              <span class="hidden xl:inline">数据</span>
+            </button>
+            <div id="stats-popover" class="hidden absolute right-0 top-10 w-[360px] max-h-[75vh] overflow-y-auto rounded-2xl border border-[#2A3833] bg-[#15201D] text-[#E8F0ED] shadow-2xl z-50 p-4">
+              <div class="flex items-center gap-3 mb-3">
+                <div id="stats-gauge" class="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style="background: conic-gradient(#59D6B3 0deg, #2A3833 0deg)">
+                  <div id="stats-gauge-text" class="w-9 h-9 rounded-full bg-[#15201D] flex items-center justify-center text-[10px] font-semibold">—</div>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="text-xs font-semibold">运行概览</div>
+                  <div id="stats-subtitle" class="text-[10px] text-[#9FB3AB] truncate">正在加载…</div>
+                </div>
+                <button onclick="toggleStatsPanel(event)" class="p-1.5 rounded-lg text-[#7E958D] hover:text-white hover:bg-[#22312C]" aria-label="收起数据面板">
+                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+              <div id="stats-body" class="space-y-2 text-[11px]"></div>
+              <div class="mt-3 pt-2 border-t border-[#2A3833] text-[9px] text-[#7E958D] flex items-center justify-between">
+                <span id="stats-updated">—</span>
+                <button onclick="loadStatsPanel()" class="hover:text-white transition-colors">刷新</button>
+              </div>
+            </div>
+          </div>
           <button onclick="exportCurrentSession()" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[#7A8C87] hover:text-[#15201D] hover:bg-[#E3ECE9]/60 transition-all" title="导出当前对话" aria-label="导出当前对话">
             <i data-lucide="download" class="w-3.5 h-3.5"></i>
             <span class="hidden xl:inline text-[11px] font-medium">导出</span>
@@ -1427,6 +1452,156 @@
         showModelTestResult(false, `保存失败: ${e.message || e}`);
       }
     }
+
+    // ------------------------------------------------------------------
+    // Runtime stats popover
+    // ------------------------------------------------------------------
+    function closeStatsPanel() {
+      const popover = document.getElementById('stats-popover');
+      const toggle = document.getElementById('stats-toggle');
+      if (!popover) return;
+      popover.classList.add('hidden');
+      if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleStatsPanel(event) {
+      if (event) event.stopPropagation();
+      const popover = document.getElementById('stats-popover');
+      const toggle = document.getElementById('stats-toggle');
+      if (!popover) return;
+      const opening = popover.classList.contains('hidden');
+      popover.classList.toggle('hidden', !opening);
+      if (toggle) toggle.setAttribute('aria-expanded', String(opening));
+      if (opening) loadStatsPanel();
+    }
+
+    function formatBytes(value) {
+      const bytes = Number(value || 0);
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+      return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+    }
+
+    function formatUptime(seconds) {
+      const total = Math.max(0, Math.floor(Number(seconds || 0)));
+      const days = Math.floor(total / 86400);
+      const hours = Math.floor((total % 86400) / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      if (days) return `${days}d ${hours}h`;
+      if (hours) return `${hours}h ${minutes}m`;
+      return `${minutes}m`;
+    }
+
+    async function statsJson(url) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`${url} HTTP ${response.status}`);
+      return response.json();
+    }
+
+    async function loadStatsPanel() {
+      const body = document.getElementById('stats-body');
+      const updated = document.getElementById('stats-updated');
+      if (!body) return;
+      body.innerHTML = '<div class="text-[11px] text-[#9AA9A4] py-6 text-center">正在读取运行数据…</div>';
+      try {
+        const [info, sessions, auditRows, skills] = await Promise.all([
+          statsJson('/api/system/info'),
+          statsJson('/api/sessions?limit=100'),
+          statsJson('/api/audit/stats'),
+          statsJson('/api/skills')
+        ]);
+
+        let currentMessages = 0;
+        let currentChars = 0;
+        if (currentSessionId && sessions.some(session => session.id === currentSessionId)) {
+          try {
+            const messages = await statsJson(`/api/sessions/${encodeURIComponent(currentSessionId)}/messages`);
+            currentMessages = messages.length;
+            currentChars = messages.reduce((sum, item) => sum + String(item.content || '').length, 0);
+          } catch (e) {
+            currentMessages = 0;
+          }
+        }
+
+        const totalTools = auditRows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+        const okTools = auditRows
+          .filter(row => String(row.status || '').toUpperCase() === 'OK')
+          .reduce((sum, row) => sum + Number(row.count || 0), 0);
+        const successRate = totalTools ? Math.round((okTools / totalTools) * 100) : null;
+        const gaugeValue = successRate === null ? 100 : successRate;
+        const gauge = document.getElementById('stats-gauge');
+        const gaugeText = document.getElementById('stats-gauge-text');
+        if (gauge) {
+          gauge.style.background = `conic-gradient(#59D6B3 ${gaugeValue * 3.6}deg, #2A3833 0deg)`;
+        }
+        if (gaugeText) gaugeText.innerText = successRate === null ? '—' : `${successRate}%`;
+        const subtitle = document.getElementById('stats-subtitle');
+        if (subtitle) {
+          subtitle.innerText = successRate === null
+            ? '暂无工具调用记录'
+            : `工具成功率 · ${okTools}/${totalTools}`;
+        }
+
+        const counts = (info.database || {}).counts || {};
+        const model = info.active_model || {};
+        const mcpServers = info.mcp_servers || [];
+        const connectedMcp = mcpServers.filter(server => server.connected).length;
+        const projectName = document.getElementById('project-select')?.selectedOptions?.[0]?.textContent || '默认项目';
+        const sessionTitle = document.getElementById('current-session-title')?.innerText || '新对话';
+        const scheduler = info.scheduler || {};
+        const row = (label, value, color = 'text-[#E7F0EC]') => `
+          <div class="flex items-start justify-between gap-3 py-1.5 border-b border-[#2A3833]/70 last:border-0">
+            <span class="text-[#9AA9A4] shrink-0">${label}</span>
+            <span class="text-right max-w-[68%] break-all ${color}">${value}</span>
+          </div>`;
+
+        body.innerHTML = `
+          <div class="rounded-xl bg-[#1F2D28] border border-[#2A3833] p-3">
+            <div class="text-[9px] uppercase tracking-wider text-[#7F928C] mb-1">当前会话</div>
+            <div class="text-xs font-semibold text-[#F4FAF7] truncate">${escapeHtml(sessionTitle)}</div>
+            <div class="text-[10px] text-[#9AA9A4] mt-1">${currentMessages} 条消息 · ${currentChars.toLocaleString()} 字符</div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="rounded-xl bg-[#1F2D28] border border-[#2A3833] px-3 py-2">
+              <div class="text-[9px] text-[#7F928C]">上下文来源</div>
+              <div class="text-[11px] text-[#E7F0EC] mt-0.5">${skills.length} 个技能 · ${mcpServers.length} 个 MCP</div>
+            </div>
+            <div class="rounded-xl bg-[#1F2D28] border border-[#2A3833] px-3 py-2">
+              <div class="text-[9px] text-[#7F928C]">轮次统计</div>
+              <div class="text-[11px] text-[#E7F0EC] mt-0.5">${totalTools} 次工具调用</div>
+            </div>
+          </div>
+          <div class="rounded-xl bg-[#1F2D28] border border-[#2A3833] px-3 py-1.5 text-[11px]">
+            ${row('项目', escapeHtml(projectName))}
+            ${row('模型', escapeHtml(model.label || model.model_name || '未配置'))}
+            ${row('MCP', `${connectedMcp}/${mcpServers.length}`, connectedMcp === mcpServers.length ? 'text-[#59D6B3]' : 'text-[#E6B566]')}
+            ${row('会话', `${counts.sessions || 0} 个`)}
+            ${row('消息', `${counts.messages || 0} 条`)}
+            ${row('数据', formatBytes((info.database || {}).database_bytes))}
+            ${row('运行时间', formatUptime(info.uptime_seconds))}
+            ${row('调度器', scheduler.running ? '运行中' : '已停止', scheduler.running ? 'text-[#59D6B3]' : 'text-[#E6B566]')}
+            ${row('浏览器', info.browser_running ? '运行中' : '未启动', info.browser_running ? 'text-[#59D6B3]' : 'text-[#9AA9A4]')}
+            ${row('版本', `v${escapeHtml(info.version || '')} · ${escapeHtml(info.environment || '')}`)}
+          </div>
+          <div class="text-[9px] text-[#7F928C] leading-relaxed break-all">
+            工作区 ${escapeHtml(info.workspace_dir || '')}
+          </div>
+        `;
+        if (updated) updated.innerText = `更新于 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+        lucide.createIcons();
+      } catch (error) {
+        body.innerHTML = `<div class="rounded-xl border border-[#6B3A3A] bg-[#3A2222] p-3 text-[11px] text-[#F1B8B8]">读取运行数据失败：${escapeHtml(error.message || String(error))}</div>`;
+      }
+    }
+
+    document.addEventListener('click', (event) => {
+      if (!event.target.closest('#stats-wrap')) closeStatsPanel();
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeStatsPanel();
+    });
 
     function switchTab(tab) {
       const primaryTabs = ['chat', 'workspace'];
