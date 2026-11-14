@@ -319,6 +319,52 @@
       </div>
     </div>
 
+    <!-- 2. SECURITY / PERMISSION TAB -->
+    <div id="tab-security" class="hidden flex-1 flex flex-col h-full p-6 overflow-y-auto">
+      <div class="max-w-3xl mx-auto w-full space-y-4">
+        <section class="bg-white border border-[#E3ECE9] rounded-2xl p-5 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-sm font-bold text-[#15201D] flex items-center gap-2">
+                <i data-lucide="shield-check" class="w-4 h-4 text-[#267F68]"></i>
+                权限模式
+              </div>
+              <div class="text-[11px] text-[#7A8C87] mt-1">决定 Agent 是否需要审批，以及命令是否进入沙箱。</div>
+            </div>
+            <span id="security-current-mode" class="text-[10px] px-2 py-1 rounded-full bg-[#EDF7F1] text-[#2F7A55] font-semibold shrink-0">读取中…</span>
+          </div>
+          <div id="security-current-desc" class="mt-3 text-[11px] text-[#4A5568] leading-relaxed"></div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+            <button id="security-strict-btn" onclick="setPermissionMode('strict')" class="text-left rounded-xl border border-[#D8E5E1] bg-[#FBFDFC] p-3 hover:border-[#3E8E7E] transition-colors">
+              <div class="flex items-center gap-2 text-xs font-bold text-[#15201D]"><i data-lucide="lock" class="w-3.5 h-3.5 text-[#267F68]"></i>严格模式</div>
+              <div class="text-[10px] text-[#7A8C87] mt-1 leading-relaxed">沙箱执行，高危操作询问，工作区路径隔离。推荐日常使用。</div>
+            </button>
+            <button id="security-full-btn" onclick="setPermissionMode('full_access')" class="text-left rounded-xl border border-[#F1D9D4] bg-[#FFF9F7] p-3 hover:border-[#B85C4A] transition-colors">
+              <div class="flex items-center gap-2 text-xs font-bold text-[#8B3E2F]"><i data-lucide="unlock" class="w-3.5 h-3.5"></i>完全访问 (Full Access)</div>
+              <div class="text-[10px] text-[#9A6A5F] mt-1 leading-relaxed">关闭沙箱与逐步审批，可读写本机文件、运行系统命令并联网。</div>
+            </button>
+          </div>
+        </section>
+        <section class="bg-[#FFFBF6] border border-[#F1E2CF] rounded-2xl p-4">
+          <div class="text-xs font-bold text-[#8A5A2B] flex items-center gap-2"><i data-lucide="triangle-alert" class="w-3.5 h-3.5"></i>完全访问的风险</div>
+          <ul class="mt-2 space-y-1 text-[11px] text-[#8A5A2B] leading-relaxed list-disc pl-4">
+            <li>Agent 可以修改工作区外的本机文件。</li>
+            <li>命令直接在主机环境运行，不再受 bwrap 隔离。</li>
+            <li>网络访问开启，数据可能被发送到外部服务。</li>
+            <li>仅建议在可信项目和受控设备上临时使用。</li>
+          </ul>
+        </section>
+        <section class="bg-white border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+          <div class="text-xs font-bold text-[#15201D]">仍然生效的硬保护</div>
+          <div class="mt-2 space-y-1.5 text-[11px] text-[#4A5568]">
+            <div class="flex items-center gap-2"><i data-lucide="check" class="w-3.5 h-3.5 text-[#2F7A55]"></i>删除系统目录、磁盘格式化等灾难性命令仍会拒绝</div>
+            <div class="flex items-center gap-2"><i data-lucide="check" class="w-3.5 h-3.5 text-[#2F7A55]"></i>写入 /etc、/boot、/dev 等系统保护目录仍会拒绝</div>
+            <div class="flex items-center gap-2"><i data-lucide="check" class="w-3.5 h-3.5 text-[#2F7A55]"></i>每次工具调用仍写入审计记录</div>
+          </div>
+        </section>
+      </div>
+    </div>
+
     <!-- 2. STATS TAB -->
     <!-- GIT / GITHUB TAB -->
 <div id="tab-git" class="hidden flex-1 flex flex-col h-full p-6 overflow-y-auto">
@@ -2764,6 +2810,7 @@
 
     const SETTINGS_SECTIONS = [
       { id: 'general', label: '通用', icon: 'settings-2', desc: '模型、运行环境与高级功能入口。' },
+      { id: 'security', label: '权限与安全', icon: 'shield-check', desc: '审批策略、沙箱与完全访问模式。' },
       { id: 'stats', label: '数据统计', icon: 'bar-chart-3', desc: '全局会话、消息、工具调用与运行数据。' },
       { id: 'memory', label: '记忆中枢', icon: 'database', desc: '长期记忆、用户偏好与项目知识库。' },
       { id: 'skills', label: '技能库', icon: 'sparkles', desc: '管理与激活 SKILL.md 能力包。' },
@@ -2776,6 +2823,60 @@
     const settingsPaneState = new Map();
     let settingsSection = 'general';
     let settingsReturnTab = 'chat';
+
+    let securityPolicyCache = null;
+
+    function renderSecurityPolicy(policy) {
+      securityPolicyCache = policy || {};
+      const mode = securityPolicyCache.permission_mode === 'full_access' ? 'full_access' : 'strict';
+      const badge = document.getElementById('security-current-mode');
+      const desc = document.getElementById('security-current-desc');
+      const strictBtn = document.getElementById('security-strict-btn');
+      const fullBtn = document.getElementById('security-full-btn');
+      if (badge) {
+        badge.textContent = mode === 'full_access' ? '完全访问' : '严格模式';
+        badge.className = mode === 'full_access'
+          ? 'text-[10px] px-2 py-1 rounded-full bg-[#FFF0EC] text-[#9B4434] font-semibold shrink-0'
+          : 'text-[10px] px-2 py-1 rounded-full bg-[#EDF7F1] text-[#2F7A55] font-semibold shrink-0';
+      }
+      if (desc) {
+        desc.textContent = mode === 'full_access'
+          ? '当前项目已关闭沙箱和逐步审批。命令直接在主机运行，文件路径不再限制在工作区，网络访问开启。'
+          : '当前项目使用沙箱执行和人工审批。高危命令会暂停等待确认，文件操作限制在工作区。';
+      }
+      if (strictBtn) strictBtn.classList.toggle('ring-2', mode === 'strict');
+      if (strictBtn) strictBtn.classList.toggle('ring-[#3E8E7E]', mode === 'strict');
+      if (fullBtn) fullBtn.classList.toggle('ring-2', mode === 'full_access');
+      if (fullBtn) fullBtn.classList.toggle('ring-[#B85C4A]', mode === 'full_access');
+    }
+
+    async function loadSecurityPolicy() {
+      try {
+        const policy = await gitJson('/api/security/policy');
+        renderSecurityPolicy(policy);
+      } catch (err) {
+        toast(`读取权限策略失败：${err.message}`, 'error');
+      }
+    }
+
+    async function setPermissionMode(mode) {
+      if (mode === 'full_access') {
+        const ok = window.confirm(
+          '完全访问 (Full Access) 将关闭沙箱和逐步审批，允许 Agent 读写本机文件、运行系统命令并联网。\n\n仅在可信项目和受控设备上使用。确定开启吗？'
+        );
+        if (!ok) return;
+      }
+      try {
+        const policy = await gitJson('/api/security/policy', {
+          method: 'PATCH',
+          body: { permission_mode: mode },
+        });
+        renderSecurityPolicy(policy);
+        toast(mode === 'full_access' ? '已开启完全访问模式' : '已恢复严格模式', 'success');
+      } catch (err) {
+        toast(`切换权限模式失败：${err.message}`, 'error');
+      }
+    }
 
     function renderSettingsNav() {
       const nav = document.getElementById('settings-nav');
@@ -2864,6 +2965,7 @@
       if (sectionId === 'skills' && typeof loadSkills === 'function') loadSkills();
       if (sectionId === 'mcp' && typeof loadMCPStatus === 'function') loadMCPStatus();
       if (sectionId === 'git' && typeof loadGitPanel === 'function') loadGitPanel();
+      if (sectionId === 'security' && typeof loadSecurityPolicy === 'function') loadSecurityPolicy();
       if (sectionId === 'stats') loadGlobalStats();
       document.getElementById('settings-content').scrollTop = 0;
       lucide.createIcons();

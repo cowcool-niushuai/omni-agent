@@ -35,10 +35,15 @@ class TenantContext:
     scopes: frozenset[str] = frozenset({"*"})
     auth_type: str = "local"
     csrf_token: str | None = None
+    permission_mode: str = "strict"
 
     @property
     def workspace_path(self) -> Path:
         return (self.workspace or project_workspace(self.project_id)).resolve()
+
+    @property
+    def is_full_access(self) -> bool:
+        return self.permission_mode == "full_access"
 
     def has_scope(self, scope: str) -> bool:
         return "*" in self.scopes or scope in self.scopes
@@ -95,6 +100,7 @@ def set_context(
     scopes: Iterable[str] = ("*",),
     auth_type: str = "local",
     csrf_token: str | None = None,
+    permission_mode: str = "strict",
 ) -> Token[TenantContext | None]:
     if context is None:
         context = TenantContext(
@@ -107,6 +113,7 @@ def set_context(
             scopes=frozenset(scopes or ()),
             auth_type=auth_type,
             csrf_token=csrf_token,
+            permission_mode=permission_mode if permission_mode in {"strict", "full_access"} else "strict",
         )
     return _current.set(context)
 
@@ -135,3 +142,12 @@ def current_workspace() -> Path:
 def current_has_scope(scope: str) -> bool:
     context = _current.get()
     return context is None or context.has_scope(scope)
+
+
+def current_permission_mode() -> str:
+    context = _current.get()
+    return context.permission_mode if context is not None else "strict"
+
+
+def is_full_access() -> bool:
+    return current_permission_mode() == "full_access"

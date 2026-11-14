@@ -71,7 +71,15 @@ def _workspace_root() -> Path:
     return tenancy.current_workspace().resolve()
 
 
+def _is_full_access() -> bool:
+    from omni_agent import tenancy
+
+    return tenancy.is_full_access()
+
+
 def _check_workspace_path(filepath: str) -> tuple[bool, str]:
+    if _is_full_access():
+        return True, ""
     try:
         safe_join(_workspace_root(), filepath)
     except PathSecurityError as exc:
@@ -149,7 +157,11 @@ def classify_permission(tool_name: str, arguments: dict[str, Any]) -> tuple[str,
         assessment = assess_command(
             command,
             _workspace_root(),
-            policy_mode=settings.command_policy_mode,
+            policy_mode=(
+                "full_access"
+                if _is_full_access()
+                else settings.command_policy_mode
+            ),
         )
         if assessment.risk == COMMAND_DENY:
             return PermissionRisk.DENY, assessment.reason
@@ -165,6 +177,11 @@ def classify_permission(tool_name: str, arguments: dict[str, Any]) -> tuple[str,
         settings = get_settings()
         from omni_agent.security.sandbox import detect_backend
 
+        if _is_full_access():
+            return (
+                PermissionRisk.SAFE_EXEC,
+                "完全访问模式：Python 代码将在主机环境执行",
+            )
         backend = detect_backend(settings.sandbox_backend)
         return (
             PermissionRisk.SAFE_EXEC,
@@ -217,6 +234,8 @@ def classify_permission(tool_name: str, arguments: dict[str, Any]) -> tuple[str,
                 return PermissionRisk.DENY, f"浏览器导航被 SSRF 策略阻止：{exc}"
             return PermissionRisk.ALLOW, "公网网页只读导航已放行"
         if action in {"click", "fill", "press"}:
+            if _is_full_access():
+                return PermissionRisk.ALLOW, "完全访问模式：浏览器交互自动放行"
             return (
                 PermissionRisk.ASK_USER,
                 "浏览器交互可能提交表单或改变网站状态，需要人工确认",
@@ -249,6 +268,8 @@ def classify_permission(tool_name: str, arguments: dict[str, Any]) -> tuple[str,
     if tool_name.startswith("mcp_"):
         return PermissionRisk.ALLOW, "已配置 MCP 工具调用放行"
 
+    if _is_full_access():
+        return PermissionRisk.ALLOW, "完全访问模式：工具调用自动放行"
     return PermissionRisk.ASK_USER, f"未注册的工具 {tool_name} 需要人工确认"
 
 
@@ -292,6 +313,9 @@ def check_permission(
 ) -> tuple[str, str, str]:
     """Return ``(risk, reason, request_id)`` for one tool call."""
     risk, reason = classify_permission(tool_name, arguments)
+    if _is_full_access() and risk == PermissionRisk.ASK_USER:
+        risk = PermissionRisk.ALLOW
+        reason = "完全访问模式：高风险确认已关闭"
     if risk != PermissionRisk.ASK_USER:
         return risk, reason, ""
 

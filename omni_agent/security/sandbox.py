@@ -270,19 +270,25 @@ def run_command(
     """Execute ``argv`` in the selected sandbox."""
     cwd_path = Path(cwd).resolve()
     cwd_path.mkdir(parents=True, exist_ok=True)
-    resolved_backend = detect_backend(backend)
-    if resolved_backend == "bwrap":
-        actual = build_bwrap_argv(
-            argv,
-            cwd=cwd_path,
-            network=network,
-            extra_ro_binds=extra_ro_binds,
-        )
-    else:
+    if (backend or "").lower() == "host":
+        resolved_backend = "host"
         actual = list(argv)
-
-    env = minimal_env(cwd_path)
-    preexec = _resource_limiter(memory_mb, cpu_seconds, file_mb)
+        env = os.environ.copy()
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        preexec = None
+    else:
+        resolved_backend = detect_backend(backend)
+        if resolved_backend == "bwrap":
+            actual = build_bwrap_argv(
+                argv,
+                cwd=cwd_path,
+                network=network,
+                extra_ro_binds=extra_ro_binds,
+            )
+        else:
+            actual = list(argv)
+        env = minimal_env(cwd_path)
+        preexec = _resource_limiter(memory_mb, cpu_seconds, file_mb)
     started = time.perf_counter()
     try:
         proc = subprocess.Popen(

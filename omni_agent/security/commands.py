@@ -633,8 +633,9 @@ def assess_command(
     except CommandPolicyError as exc:
         return CommandAssessment([], "", DENY, str(exc), policy_mode=policy_mode)
 
+    mode = (policy_mode or "strict").lower()
     if uses_shell:
-        if policy_mode.lower() != "permissive":
+        if mode not in {"permissive", "full_access"}:
             return CommandAssessment(
                 [],
                 "",
@@ -644,8 +645,8 @@ def assess_command(
                 uses_shell_syntax=True,
                 policy_mode=policy_mode,
             )
-        # Permissive mode still requires approval and runs through a shell
-        # inside the configured sandbox.
+        # Permissive mode requires approval; full access runs directly on the
+        # host but still keeps catastrophic-command protection.
         for denied in DENIED_PATHS:
             if denied in raw:
                 return CommandAssessment(
@@ -669,8 +670,12 @@ def assess_command(
         return CommandAssessment(
             ["/bin/sh", "-c", raw],
             "sh",
-            ASK_USER,
-            "命令包含 shell 操作符，permissive 模式需要人工审批并在沙箱中执行。",
+            ALLOW if mode == "full_access" else ASK_USER,
+            (
+                "完全访问模式：shell 命令在主机环境执行。"
+                if mode == "full_access"
+                else "命令包含 shell 操作符，permissive 模式需要人工审批并在沙箱中执行。"
+            ),
             uses_shell_syntax=True,
             policy_mode=policy_mode,
         )
@@ -694,6 +699,24 @@ def assess_command(
     base_risk, reason = _executable_assessment(executable, argv)
     if base_risk == DENY:
         return CommandAssessment(argv, executable, DENY, reason, policy_mode=policy_mode)
+
+    if mode == "full_access":
+        for argument in argv[1:]:
+            if _is_denied_path_token(argument):
+                return CommandAssessment(
+                    argv,
+                    executable,
+                    DENY,
+                    f"完全访问模式仍禁止操作系统保护路径: {argument}",
+                    policy_mode=policy_mode,
+                )
+        return CommandAssessment(
+            argv,
+            executable,
+            ALLOW,
+            "完全访问模式：命令在主机环境执行",
+            policy_mode=policy_mode,
+        )
 
     skip_code = executable in {
         "python",

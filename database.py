@@ -247,6 +247,16 @@ def init_db():
     """)
 
     cursor.execute("""
+    CREATE TABLE IF NOT EXISTS project_settings (
+        project_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (project_id, key)
+    )
+    """)
+
+    cursor.execute("""
     CREATE TABLE IF NOT EXISTS api_tokens (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
@@ -962,6 +972,36 @@ def get_project_access(
     else:
         effective = "admin" if team_role in {"owner", "admin"} else "member"
     return {**project, "team_role": team_role, "effective_role": effective}
+
+
+def get_project_setting(project_id: str, key: str, default: str = "") -> str:
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT value FROM project_settings WHERE project_id = ? AND key = ?",
+            (project_id, key),
+        ).fetchone()
+    finally:
+        conn.close()
+    return str(row["value"]) if row and row["value"] is not None else default
+
+
+def set_project_setting(project_id: str, key: str, value: str) -> None:
+    conn = get_db()
+    try:
+        conn.execute(
+            """
+            INSERT INTO project_settings (project_id, key, value, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(project_id, key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (project_id, key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def list_project_sessions_stats(project_id: str) -> Dict[str, Any]:

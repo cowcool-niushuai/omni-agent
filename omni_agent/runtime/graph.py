@@ -72,6 +72,7 @@ class AgentState(TypedDict, total=False):
     role: str
     team_role: str
     scopes: list[str]
+    permission_mode: str
     plan: dict[str, Any] | None
     verification_attempts: int
     verification_status: str
@@ -224,6 +225,9 @@ class AgentRuntime:
             scopes=frozenset(state.get("scopes") or base.scopes),
             auth_type=base.auth_type,
             csrf_token=base.csrf_token,
+            permission_mode=str(
+                state.get("permission_mode") or base.permission_mode
+            ),
         )
         tenancy.set_context(context)
         return context
@@ -531,7 +535,11 @@ class AgentRuntime:
         writer = _writer()
         settings = self._settings
         semaphore = asyncio.Semaphore(max(1, settings.tool_max_concurrency))
-        backend = detect_backend(settings.sandbox_backend)
+        backend = (
+            "host"
+            if tenancy.is_full_access()
+            else detect_backend(settings.sandbox_backend)
+        )
 
         async def run_one(call: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
             async with semaphore:
@@ -1102,6 +1110,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
                 "role": context.role,
                 "team_role": context.team_role,
                 "scopes": sorted(context.scopes),
+                "permission_mode": context.permission_mode,
             }
         )
 

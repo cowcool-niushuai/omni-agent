@@ -27,8 +27,8 @@ from omni_agent import tenancy
 from omni_agent.config import get_settings
 from omni_agent.runtime import planning
 from omni_agent.security import PathSecurityError, safe_join
+from omni_agent.security.commands import DENIED_PATHS, assess_command
 from omni_agent.security.commands import DENY as COMMAND_DENY
-from omni_agent.security.commands import assess_command
 from omni_agent.security.limits import truncate_text
 from omni_agent.security.sandbox import run_command
 from omni_agent.security.ssrf import (
@@ -51,11 +51,27 @@ _REDIRECT_STATUS = {301, 302, 303, 307, 308}
 
 
 def resolve_path(filepath: str) -> str:
-    """Resolve a workspace-relative path and reject any escape attempt."""
+    """Resolve a path; full-access mode may address the host filesystem."""
+    if tenancy.is_full_access():
+        candidate = Path(filepath).expanduser()
+        if not candidate.is_absolute():
+            candidate = _workspace_path() / candidate
+        return str(candidate.resolve())
     try:
         return str(safe_join(_workspace_path(), filepath))
     except PathSecurityError as exc:
         raise PathSecurityError(f"非法路径，已阻止越界访问: {filepath}") from exc
+
+
+def _check_protected_write(path: Path) -> str | None:
+    """Full access still refuses writes to core system directories."""
+    if not tenancy.is_full_access():
+        return None
+    resolved = str(path.resolve())
+    for denied in DENIED_PATHS:
+        if resolved == denied or resolved.startswith(denied + "/"):
+            return f"完全访问模式仍禁止写入系统保护目录: {denied}"
+    return None
 
 
 def _settings_snapshot() -> Any:
@@ -138,6 +154,9 @@ def tool_file_write(filepath: str, content: str) -> str:
     error = _check_write_size(len(content.encode("utf-8")))
     if error:
         return error
+    protected = _check_protected_write(path)
+    if protected:
+        return protected
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with open(path, "w", encoding="utf-8") as handle:
@@ -156,6 +175,9 @@ def tool_file_edit(filepath: str, target: str, replacement: str) -> str:
         return f"文件不存在: {filepath}"
     if not target:
         return "编辑失败：target 不能为空"
+    protected = _check_protected_write(path)
+    if protected:
+        return protected
     try:
         with open(path, encoding="utf-8") as handle:
             old_content = handle.read()
@@ -211,10 +233,11 @@ def tool_bash_run(command: str) -> str:
     reach this function only after the runtime's approval node or the
     sub-agent policy explicitly allowed them.
     """
+    full_access = tenancy.is_full_access()
     assessment = assess_command(
         command,
         _workspace_path(),
-        policy_mode=_settings.command_policy_mode,
+        policy_mode="full_access" if full_access else _settings.command_policy_mode,
     )
     if assessment.risk == COMMAND_DENY:
         return f"[安全策略拒绝] {assessment.reason}"
@@ -223,8 +246,8 @@ def tool_bash_run(command: str) -> str:
         assessment.argv,
         cwd=_workspace_path(),
         timeout=_settings.command_timeout_seconds,
-        backend=_settings.sandbox_backend,
-        network=_settings.sandbox_network,
+        backend="host" if full_access else _settings.sandbox_backend,
+        network=True if full_access else _settings.sandbox_network,
         memory_mb=_settings.command_max_memory_mb,
         cpu_seconds=_settings.command_max_cpu_seconds,
         file_mb=_settings.command_max_file_mb,
@@ -244,12 +267,13 @@ def tool_bash_run(command: str) -> str:
 
 
 def tool_python_eval(code: str) -> str:
+    full_access = tenancy.is_full_access()
     result = run_command(
         [sys.executable, "-c", code],
         cwd=_workspace_path(),
         timeout=_settings.python_eval_timeout_seconds,
-        backend=_settings.sandbox_backend,
-        network=_settings.sandbox_network,
+        backend="host" if full_access else _settings.sandbox_backend,
+        network=True if full_access else _settings.sandbox_network,
         memory_mb=_settings.command_max_memory_mb,
         cpu_seconds=_settings.command_max_cpu_seconds,
         file_mb=_settings.command_max_file_mb,

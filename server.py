@@ -254,6 +254,9 @@ def _build_context(identity: dict, request: Request) -> tenancy.TenantContext:
         scopes=frozenset(identity.get("scopes") or {"*"}),
         auth_type=str(identity.get("auth_type") or "local"),
         csrf_token=identity.get("csrf_token"),
+        permission_mode=database.get_project_setting(
+            project_id, "permission_mode", "strict"
+        ),
     )
 
 
@@ -1238,14 +1241,19 @@ async def api_browser_status():
     return await run_in_threadpool(browser_manager.status)
 
 
-@app.get("/api/security/policy")
-async def api_security_policy():
+class PermissionModeRequest(BaseModel):
+    permission_mode: str
+
+
+def _security_policy_payload(mode: str) -> dict:
     from omni_agent.security.sandbox import detect_backend
 
+    full_access = mode == "full_access"
     return {
-        "sandbox_backend": detect_backend(settings.sandbox_backend),
-        "sandbox_network": settings.sandbox_network,
-        "command_policy_mode": settings.command_policy_mode,
+        "permission_mode": mode,
+        "sandbox_backend": "host" if full_access else detect_backend(settings.sandbox_backend),
+        "sandbox_network": True if full_access else settings.sandbox_network,
+        "command_policy_mode": "full_access" if full_access else settings.command_policy_mode,
         "command_timeout_seconds": settings.command_timeout_seconds,
         "tool_timeout_seconds": settings.tool_timeout_seconds,
         "tool_max_output_chars": settings.tool_max_output_chars,
@@ -1254,6 +1262,27 @@ async def api_security_policy():
         "allow_private_network": settings.allow_private_network,
         "audit_enabled": settings.audit_enabled,
     }
+
+
+@app.get("/api/security/policy")
+async def api_security_policy():
+    return _security_policy_payload(_context().permission_mode)
+
+
+@app.patch("/api/security/policy")
+async def api_update_security_policy(body: PermissionModeRequest):
+    context = _require_admin()
+    mode = body.permission_mode.strip()
+    if mode not in {"strict", "full_access"}:
+        raise HTTPException(status_code=400, detail="权限模式只能是 strict 或 full_access")
+    database.set_project_setting(context.project_id, "permission_mode", mode)
+    log.info(
+        "permission_mode_changed",
+        project_id=context.project_id,
+        user_id=context.user_id,
+        permission_mode=mode,
+    )
+    return _security_policy_payload(mode)
 
 # 9d. Team edition: users, teams, projects and API tokens
 class UserCreateRequest(BaseModel):

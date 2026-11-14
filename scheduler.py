@@ -154,6 +154,9 @@ class Scheduler:
             team_role="member",
             scopes=frozenset({"*"}),
             auth_type="scheduler",
+            permission_mode=database.get_project_setting(
+                project_id, "permission_mode", "strict"
+            ),
         )
         token = tenancy.set_context(context)
         self._running.add(task_id)
