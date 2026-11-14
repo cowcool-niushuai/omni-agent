@@ -1,19 +1,33 @@
 """Permission classification and human-in-the-loop request storage.
 
-The classifier is pure. Requests are persisted only when a tool actually
-requires approval, and request ids are deterministic so a LangGraph node can
-safely re-run after ``interrupt()`` without creating duplicates.
+The classifier is pure: it never executes the tool and (except for approval
+request persistence) never touches the database. Shell command and URL checks
+delegate to :mod:`omni_agent.security`, so the policy engine is shared by the
+runtime, sub-agents and direct tool calls.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import re
 import uuid
+from pathlib import Path
 from typing import Any
 
 import database
+from omni_agent.config import get_settings
+from omni_agent.security.commands import (
+    ASK_USER as COMMAND_ASK_USER,
+)
+from omni_agent.security.commands import (
+    DENY as COMMAND_DENY,
+)
+from omni_agent.security.commands import (
+    assess_command,
+    validate_sql_readonly,
+)
+from omni_agent.security.paths import PathSecurityError, safe_join
+from omni_agent.security.ssrf import UnsafeURLError, validate_url_static
 
 
 class PermissionRisk:
@@ -23,29 +37,15 @@ class PermissionRisk:
     DENY = "DENY"               # Completely blocked
 
 
-DANGEROUS_PATTERNS = [
-    r"\brm\b",
-    r"\brmdir\b",
-    r"\bkill\b",
-    r"\bpkill\b",
-    r"\bsudo\b",
-    r"\bchmod\b",
-    r"\bchown\b",
-    r"\bmkfs\b",
-    r"\bdd\b",
-    r">\s*/dev/",
-    r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;",  # Fork bomb
-    r"\|\s*bash",
-    r"\|\s*sh",
-]
-
-DENIED_PATHS = [
-    "/etc",
-    "/root",
-    "/sys",
-    "/proc",
-    "/boot",
-]
+READ_ONLY_TOOLS = {
+    "file_read",
+    "file_list",
+    "rag_search",
+    "read_skill_doc",
+    "mcp_db_schema",
+    "mcp_db_stats",
+}
+WRITE_TOOLS = {"file_write", "file_edit"}
 
 
 def permission_request_id(session_id: str, tool_call_id: str) -> str:
@@ -60,67 +60,113 @@ def permission_batch_id(session_id: str, tool_call_ids: list[str]) -> str:
     return f"batch_{digest}"
 
 
+def _workspace_root() -> Path:
+    return Path(get_settings().workspace_dir).resolve()
+
+
+def _check_workspace_path(filepath: str) -> tuple[bool, str]:
+    try:
+        safe_join(_workspace_root(), filepath)
+    except PathSecurityError as exc:
+        return False, str(exc)
+    return True, ""
+
+
+def _check_file_size(arguments: dict[str, Any]) -> tuple[bool, int]:
+    settings = get_settings()
+    content = arguments.get("content")
+    replacement = arguments.get("replacement")
+    size = 0
+    if isinstance(content, str):
+        size = len(content.encode("utf-8"))
+    if isinstance(replacement, str):
+        size = max(size, len(replacement.encode("utf-8")))
+    return size <= settings.max_file_write_bytes, size
+
+
 def classify_permission(tool_name: str, arguments: dict[str, Any]) -> tuple[str, str]:
-    """Classify a tool call without touching the database."""
+    """Classify a tool call without executing it."""
     # 1. Read-only tools are always allowed
-    if tool_name in [
-        "file_read",
-        "file_list",
-        "rag_search",
-        "read_skill_doc",
-        "mcp_db_schema",
-        "mcp_db_stats",
-    ]:
+    if tool_name in READ_ONLY_TOOLS:
         return PermissionRisk.ALLOW, "只读安全操作，自动放行"
 
-    # 2. File write checks
-    if tool_name in ["file_write", "file_edit"]:
+    # 2. File writes: containment + size checks
+    if tool_name in WRITE_TOOLS:
         filepath = str(arguments.get("filepath", ""))
-        for denied_path in DENIED_PATHS:
-            if filepath.startswith(denied_path):
-                return (
-                    PermissionRisk.DENY,
-                    f"严重越权：禁止修改系统核心目录 {denied_path}",
-                )
+        if not filepath.strip():
+            return PermissionRisk.DENY, "文件路径不能为空"
+        ok, reason = _check_workspace_path(filepath)
+        if not ok:
+            return PermissionRisk.DENY, f"严重越权：文件路径不在工作区 ({reason})"
+        size_ok, size = _check_file_size(arguments)
+        if not size_ok:
+            limit_mb = get_settings().max_file_write_bytes // (1024 * 1024)
+            return PermissionRisk.DENY, f"写入内容过大（{size} bytes，上限 {limit_mb} MB）"
+        if tool_name == "file_edit":
+            target = str(arguments.get("target", ""))
+            if not target:
+                return PermissionRisk.DENY, "file_edit 缺少 target 参数"
         return PermissionRisk.SAFE_EXEC, "工作区文件操作，允许记录审计"
 
-    # 3. Shell execution checks
+    # 3. Shell execution: shared command policy engine
     if tool_name == "bash_run":
-        cmd = str(arguments.get("command", "")).strip()
-        for denied_path in DENIED_PATHS:
-            if denied_path in cmd:
-                return (
-                    PermissionRisk.DENY,
-                    f"系统保护拦截：命令中包含敏感受限路径 {denied_path}",
-                )
+        settings = get_settings()
+        command = str(arguments.get("command", ""))
+        assessment = assess_command(
+            command,
+            _workspace_root(),
+            policy_mode=settings.command_policy_mode,
+        )
+        if assessment.risk == COMMAND_DENY:
+            return PermissionRisk.DENY, assessment.reason
+        if assessment.risk == COMMAND_ASK_USER:
+            return PermissionRisk.ASK_USER, assessment.reason
+        return assessment.risk, assessment.reason
 
-        for pattern in DANGEROUS_PATTERNS:
-            if re.search(pattern, cmd, re.IGNORECASE):
-                reason = (
-                    f"高危命令检测：命令包含潜在危险模式 '{pattern}'，"
-                    "触发 Human-in-the-loop 安全拦截。"
-                )
-                return PermissionRisk.ASK_USER, reason
+    # 4. Arbitrary Python runs inside the configured sandbox.
+    if tool_name == "python_eval":
+        code = str(arguments.get("code", ""))
+        if not code.strip():
+            return PermissionRisk.DENY, "Python 代码为空"
+        settings = get_settings()
+        from omni_agent.security.sandbox import detect_backend
 
-        return PermissionRisk.SAFE_EXEC, "常规 Shell 指令，已通过策略预检"
+        backend = detect_backend(settings.sandbox_backend)
+        return (
+            PermissionRisk.SAFE_EXEC,
+            f"Python 代码将在 {backend} 沙箱中受限执行",
+        )
 
-    # 4. MCP SQL Query check
-    if tool_name == "mcp_sql_query":
-        query = str(arguments.get("query", "")).strip().upper()
-        if not query.startswith("SELECT"):
-            return (
-                PermissionRisk.DENY,
-                "SQL安全拦截：智能体仅允许执行只读 SELECT 查询，"
-                "严禁 UPDATE/DELETE/DROP",
+    # 5. Network fetch: static SSRF pre-check (full DNS check at execution)
+    if tool_name == "web_fetch":
+        settings = get_settings()
+        try:
+            validate_url_static(
+                str(arguments.get("url", "")),
+                allowed_ports=settings.web_fetch_port_list,
+                allow_private=settings.allow_private_network,
             )
-        return PermissionRisk.ALLOW, "只读 SQL 查询已放行"
+        except UnsafeURLError as exc:
+            return PermissionRisk.DENY, f"网页抓取被 SSRF 策略阻止：{exc}"
+        return PermissionRisk.ALLOW, "公网网页只读抓取已放行"
+
+    # 6. MCP SQL Query check
+    if tool_name == "mcp_sql_query":
+        ok, reason = validate_sql_readonly(str(arguments.get("query", "")))
+        if not ok:
+            return PermissionRisk.DENY, f"SQL安全拦截：{reason}"
+        return PermissionRisk.ALLOW, reason
 
     # Sub-agents inherit the same tool policy, but their own dangerous calls
     # are denied rather than pausing the parent graph.
     if tool_name == "spawn_subagent":
         return PermissionRisk.ALLOW, "子智能体任务将按工具策略执行"
 
-    return PermissionRisk.ALLOW, "标准工具调用放行"
+    # Configured MCP tools are trusted extensions. Unknown native tools are not.
+    if tool_name.startswith("mcp_"):
+        return PermissionRisk.ALLOW, "已配置 MCP 工具调用放行"
+
+    return PermissionRisk.ASK_USER, f"未注册的工具 {tool_name} 需要人工确认"
 
 
 def create_permission_request(

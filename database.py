@@ -92,11 +92,35 @@ def init_db():
     )
     """)
 
+    # 7. Tool execution audit trail (Phase 2)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS tool_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        turn_id TEXT,
+        tool_call_id TEXT,
+        tool_name TEXT NOT NULL,
+        arguments TEXT,
+        risk_level TEXT NOT NULL,
+        decision TEXT NOT NULL, -- 'AUTO', 'APPROVED', 'REJECTED', 'DENIED'
+        status TEXT NOT NULL,   -- 'OK', 'ERROR', 'TIMEOUT', 'BLOCKED'
+        sandbox TEXT,
+        exit_code INTEGER,
+        duration_ms INTEGER DEFAULT 0,
+        output_chars INTEGER DEFAULT 0,
+        output_preview TEXT,
+        error TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     # Indexes for the hot read paths
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_permission_status ON permission_requests(status, created_at DESC)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_subagents_session ON subagent_tasks(parent_session_id, created_at DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_session ON tool_audit(session_id, id DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON tool_audit(created_at DESC)")
     
     # Pre-seed some knowledge docs for RAG if empty
     cursor.execute("SELECT count(*) as cnt FROM knowledge_docs")

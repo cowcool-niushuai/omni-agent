@@ -37,3 +37,27 @@ def test_skill_id_traversal_is_rejected() -> None:
         },
     )
     assert response.status_code == 400
+
+
+def test_security_policy_endpoint() -> None:
+    response = client.get("/api/security/policy")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sandbox_backend"] in {"process", "bwrap"}
+    assert body["command_policy_mode"] in {"strict", "permissive"}
+    assert body["allow_private_network"] is False
+
+
+def test_audit_endpoint() -> None:
+    response = client.get("/api/audit", params={"limit": 5})
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+    stats = client.get("/api/audit/stats")
+    assert stats.status_code == 200
+    assert isinstance(stats.json(), list)
+
+
+def test_knowledge_endpoint() -> None:
+    response = client.get("/api/knowledge")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)

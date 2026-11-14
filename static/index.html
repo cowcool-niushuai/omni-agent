@@ -97,6 +97,10 @@
           <i data-lucide="layers" class="w-4 h-4"></i>
           <span>MCP 服务</span>
         </button>
+        <button onclick="switchTab('audit')" id="nav-audit" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-[#7A8C87] hover:text-[#15201D] hover:bg-[#F2F6F5] transition-all">
+          <i data-lucide="shield-check" class="w-4 h-4"></i>
+          <span>审计记录</span>
+        </button>
         <button onclick="switchTab('memory')" id="nav-memory" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-[#7A8C87] hover:text-[#15201D] hover:bg-[#F2F6F5] transition-all">
           <i data-lucide="database" class="w-4 h-4"></i>
           <span>记忆中枢</span>
@@ -299,6 +303,37 @@
         <div>
           <h2 class="text-base font-bold text-[#15201D] mb-3">知识库</h2>
           <div id="knowledge-container" class="space-y-2"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. AUDIT TAB -->
+    <div id="tab-audit" class="hidden flex-1 flex flex-col h-full p-6 overflow-y-auto">
+      <div class="max-w-5xl mx-auto w-full space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-base font-bold text-[#15201D]">工具执行审计</h2>
+            <p class="text-[11px] text-[#7A8C87] mt-0.5">风险级别、审批决策、耗时与输出摘要</p>
+          </div>
+          <button onclick="loadAudit()" class="text-xs text-[#7A8C87] hover:text-[#15201D] flex items-center gap-1">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> 刷新
+          </button>
+        </div>
+        <div id="audit-summary" class="grid grid-cols-1 md:grid-cols-3 gap-2"></div>
+        <div class="border border-[#E3ECE9] rounded-2xl overflow-hidden bg-[#FFFFFF] shadow-sm">
+          <table class="w-full text-xs table-fixed">
+            <thead class="bg-[#F5F8F7] text-[#7A8C87]">
+              <tr>
+                <th class="text-left font-medium px-3 py-2 w-28">时间</th>
+                <th class="text-left font-medium px-3 py-2 w-40">工具</th>
+                <th class="text-left font-medium px-3 py-2 w-24">风险</th>
+                <th class="text-left font-medium px-3 py-2 w-28">决策/状态</th>
+                <th class="text-left font-medium px-3 py-2 w-20">耗时</th>
+                <th class="text-left font-medium px-3 py-2">输出摘要</th>
+              </tr>
+            </thead>
+            <tbody id="audit-list" class="divide-y divide-[#F0F4F2]"></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -530,7 +565,7 @@
     }
 
     function switchTab(tab) {
-      ['chat', 'skills', 'mcp', 'workspace', 'memory'].forEach(t => {
+      ['chat', 'skills', 'mcp', 'audit', 'workspace', 'memory'].forEach(t => {
         const el = document.getElementById(`tab-${t}`);
         const btn = document.getElementById(`nav-${t}`);
         if (t === tab) {
@@ -541,6 +576,7 @@
           btn.className = "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-[#7A8C87] hover:text-[#15201D] hover:bg-[#F2F6F5] transition-all";
         }
       });
+      if (tab === 'audit') loadAudit();
       lucide.createIcons();
     }
 
@@ -1099,6 +1135,57 @@
         `;
         kBox.appendChild(c);
       });
+    }
+
+    async function loadAudit() {
+      try {
+        const [rowsRes, statsRes] = await Promise.all([
+          fetch('/api/audit?limit=100'),
+          fetch('/api/audit/stats')
+        ]);
+        const rows = await rowsRes.json();
+        const stats = await statsRes.json();
+        const total = stats.reduce((sum, item) => sum + (item.count || 0), 0);
+        const blocked = stats.filter(item => item.status === 'BLOCKED').reduce((sum, item) => sum + (item.count || 0), 0);
+        const approved = stats.filter(item => item.decision === 'APPROVED').reduce((sum, item) => sum + (item.count || 0), 0);
+        const summary = document.getElementById('audit-summary');
+        const cards = [
+          ['累计调用', total, '#267F68'],
+          ['人工批准', approved, '#C98B4E'],
+          ['被拦截', blocked, '#B4544E']
+        ];
+        summary.innerHTML = cards.map(([label, value, color]) => `
+          <div class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl px-4 py-3 shadow-sm">
+            <div class="text-[11px] text-[#7A8C87]">${label}</div>
+            <div class="text-xl font-bold mt-1" style="color:${color}">${value}</div>
+          </div>
+        `).join('');
+
+        const list = document.getElementById('audit-list');
+        list.innerHTML = '';
+        if (!rows.length) {
+          list.innerHTML = '<tr><td colspan="6" class="px-3 py-6 text-center text-[#7A8C87]">暂无审计记录</td></tr>';
+          return;
+        }
+        const riskColor = { ALLOW: '#267F68', SAFE_EXEC: '#3975B9', ASK_USER: '#C98B4E', DENY: '#B4544E' };
+        rows.forEach(row => {
+          const tr = document.createElement('tr');
+          const decisionColor = row.status === 'BLOCKED' ? '#B4544E' : (row.status === 'ERROR' || row.status === 'TIMEOUT' ? '#C98B4E' : '#267F68');
+          const when = String(row.created_at || '').replace('T', ' ').slice(0, 19);
+          tr.innerHTML = `
+            <td class="px-3 py-2 font-mono text-[10px] text-[#7A8C87]">${escapeHtml(when)}</td>
+            <td class="px-3 py-2 font-mono text-[11px] text-[#15201D] truncate">${escapeHtml(row.tool_name)}</td>
+            <td class="px-3 py-2"><span class="text-[10px] font-semibold" style="color:${riskColor[row.risk_level] || '#7A8C87'}">${escapeHtml(row.risk_level)}</span></td>
+            <td class="px-3 py-2 text-[10px]"><span class="font-semibold" style="color:${decisionColor}">${escapeHtml(row.decision)}</span><span class="text-[#7A8C87]"> / ${escapeHtml(row.status)}</span></td>
+            <td class="px-3 py-2 font-mono text-[10px] text-[#7A8C87]">${row.duration_ms || 0}ms</td>
+            <td class="px-3 py-2 text-[10px] text-[#4A5568]" title="${escapeHtml(row.output_preview || '')}"><div class="truncate">${escapeHtml((row.output_preview || '').slice(0, 160))}</div></td>
+          `;
+          list.appendChild(tr);
+        });
+        lucide.createIcons();
+      } catch (e) {
+        console.error(e);
+      }
     }
 
     function escapeHtml(s) {

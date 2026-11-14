@@ -5,7 +5,7 @@
 
 OmniAgent 是一个**单机单用户**的通用智能体应用：它不只回答问题，还能在工作区里读写文件、执行命令、运行 Python、调用 MCP 工具，并在高危操作前暂停，等待你批准后继续执行。
 
-项目当前处于 **Phase 1（Agent 内核可信化）完成** 的状态，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
+项目当前处于 **Phase 2（沙箱与工具策略）完成** 的状态，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
 
 ---
 
@@ -66,12 +66,44 @@ START -> agent -> (需要审批?) -> approval -> tools -> agent -> ... -> END
 |---|---|
 | `ALLOW` | 只读、安全操作，自动执行 |
 | `SAFE_EXEC` | 工作区文件操作、常规命令，执行并记录 |
-| `ASK_USER` | `rm`、`kill`、`chmod`、`sudo` 等高危命令，暂停等待审批 |
-| `DENY` | 系统目录、非只读 SQL 等，直接阻断 |
+| `ASK_USER` | `rm`、`chmod`、网络访问、未知命令等，暂停等待审批 |
+| `DENY` | 系统目录、shell 操作符、SSRF 目标、非只读 SQL 等，直接阻断 |
 
-> 注意：当前命令策略仍是**黑名单 + 审批**，不是操作系统级沙箱。真正的进程/容器隔离、SSRF 防护、资源配额属于 Phase 2。
+命令策略已经从“正则黑名单”升级为三层校验：
 
-### 6. 会话、记忆与知识库
+1. **语法解析**：`shlex` 解析后 **不使用 shell** 执行；严格模式直接拒绝 `; & | < > $()` 等操作符
+2. **可执行文件白名单**：只读 / 工作区写入 / 需审批 / 禁止执行四类；未知二进制需要人工批准
+3. **参数校验**：路径参数必须留在工作区；`find -exec`、`git -c`、`pip install` 等高危参数会升级为审批
+
+### 6. 沙箱与资源配额
+
+- **bubblewrap 后端**（默认 `auto`，检测到 `bwrap` 即启用）：只读系统目录、可写工作区、私有 `/tmp`、默认无网络
+- **process 后端**：无 shell + 独立进程组 + 环境变量清洗 + `RLIMIT_CPU/AS/FSIZE/NOFILE` 限制
+- 命令超时、输出字节上限、工具执行超时、并发上限、单文件写入上限
+- 子智能体共享同一套策略，遇到高危操作直接拒绝而不是暂停父图
+
+### 7. SSRF 防护
+
+`web_fetch` 只允许 `http/https` 与白名单端口，拒绝：
+
+- `localhost`、`127.0.0.0/8`、`10/8`、`172.16/12`、`192.168/16`
+- 链路本地地址、云元数据地址（`169.254.169.254`）
+- CGNAT、保留地址、IPv6 回环/映射地址
+- URL 中的用户名密码、非白名单端口
+
+每次重定向都会重新校验；请求建立后还会检查实际连接的 peer IP，关闭 DNS rebinding 窗口。
+
+### 8. 审计与执行记录
+
+每次工具调用（包括被拒绝的调用）都会写入 `tool_audit` 表：
+
+- 风险级别、审批决策、执行状态
+- 沙箱后端、退出码、耗时、输出字符数与摘要
+- 参数中的 `api_key` / `token` / `secret` 等字段自动脱敏
+
+Web 控制台新增“审计记录”页，也可以调用 `GET /api/audit`、`GET /api/audit/stats`；CLI 使用 `/audit` 查看当前会话记录。
+
+### 9. 会话、记忆与知识库
 
 - 会话与消息持久化到 SQLite
 - 长期记忆（memories）注入系统提示词
@@ -103,8 +135,9 @@ START -> agent -> (需要审批?) -> approval -> tools -> agent -> ... -> END
        │               │
 ┌──────▼──────┐  ┌─────▼─────────────────────┐
 │ Model APIs  │  │ Tools / MCP / Skills      │
-│ DeepSeek... │  │ permission policy         │
-└─────────────┘  └───────────────────────────┘
+│ DeepSeek... │  │ command policy + sandbox  │
+└─────────────┘  │ SSRF guard + audit trail  │
+                 └───────────────────────────┘
 ```
 
 ---
@@ -117,20 +150,26 @@ omni-agent/
 ├── omni_agent/
 │   ├── config.py              # pydantic-settings 配置
 │   ├── logging_config.py      # structlog
-│   ├── security/paths.py      # 路径越界防护
+│   ├── security/
+│   │   ├── paths.py           # 路径越界防护
+│   │   ├── commands.py        # 命令白名单、参数校验、SQL 只读策略
+│   │   ├── sandbox.py         # process / bubblewrap 沙箱执行
+│   │   ├── ssrf.py            # URL 静态校验、DNS 解析与私网拦截
+│   │   └── limits.py          # 输出截断
 │   └── runtime/
 │       ├── graph.py           # LangGraph StateGraph 与 AgentRuntime
 │       └── context.py         # token 计数与上下文压缩
 ├── permission.py              # 风险分类、审批请求、批量状态更新
+├── audit.py                   # 工具执行审计（脱敏、统计）
 ├── tools.py                   # 原生工具与 MCP 工具分发
 ├── prompts.py                 # 动态系统提示词
-├── database.py                # SQLite 持久化
+├── database.py                # SQLite 持久化（含 tool_audit 表）
 ├── model_manager.py           # 多 provider 模型管理（密钥只从环境变量读取）
-├── mcp_manager.py             # MCP stdio 客户端
+├── mcp_manager.py             # MCP stdio 客户端（超时/重连/并发锁）
 ├── skills_manager.py          # Skills 扫描与写入
 ├── server.py                  # FastAPI 入口与 SSE
-├── cli.py                     # Rich CLI / 审批交互
-├── static/index.html          # Web 控制台
+├── cli.py                     # Rich CLI / 审批交互 / 审计查询
+├── static/index.html          # Web 控制台（含审计页）
 ├── tests/                     # pytest
 ├── workspace/                 # Agent 工作区（不入库）
 ├── data/                      # checkpoint 等运行数据（不入库）
@@ -191,8 +230,22 @@ make check      # 全部检查
 | `CONTEXT_MAX_TOKENS` | 上下文压缩阈值 | `24000` |
 | `CONTEXT_KEEP_LAST` | 压缩时保留的最近消息数 | `12` |
 | `MAX_ITERATIONS` | 单轮最大推理步数 | `8` |
+| `SANDBOX_BACKEND` | `auto` / `bwrap` / `process` | `auto` |
+| `SANDBOX_NETWORK` | 沙箱是否允许网络 | `false` |
+| `COMMAND_POLICY_MODE` | `strict` / `permissive` | `strict` |
+| `COMMAND_TIMEOUT_SECONDS` | 单条命令超时 | `30` |
+| `COMMAND_MAX_MEMORY_MB` | 命令内存上限 | `512` |
+| `TOOL_TIMEOUT_SECONDS` | 单次工具执行超时 | `60` |
+| `TOOL_MAX_OUTPUT_CHARS` | 工具输出字符上限 | `12000` |
+| `TOOL_MAX_CONCURRENCY` | 并行工具调用上限 | `4` |
+| `MAX_FILE_WRITE_BYTES` | 单文件写入上限 | `10485760` |
+| `WEB_FETCH_TIMEOUT_SECONDS` | 网页抓取超时 | `10` |
+| `WEB_FETCH_ALLOWED_PORTS` | 允许访问的端口 | `80,443,8080,8443` |
+| `ALLOW_PRIVATE_NETWORK` | 是否允许抓取内网地址 | `false` |
+| `MCP_REQUEST_TIMEOUT_SECONDS` | MCP 请求超时 | `15` |
+| `AUDIT_ENABLED` | 是否写入工具审计 | `true` |
 
-模型 provider 与模型列表在 `model_config.json` 中管理；**API Key 不会写入该文件**，只从环境变量读取。可参考 `model_config.example.json`。
+完整列表见 `.env.example`。模型 provider 与模型列表在 `model_config.json` 中管理；**API Key 不会写入该文件**，只从环境变量读取。可参考 `model_config.example.json`。
 
 ---
 
@@ -202,7 +255,10 @@ make check      # 全部检查
 - 密钥只从环境变量读取；`.env` 权限应为 `600`
 - 默认只监听 `127.0.0.1`，不对外暴露
 - 文件路径统一经过 `safe_join`，阻止 `../` 与符号链接逃逸
-- 高危命令通过审批暂停，但**不是沙箱**；不要把不可信任务直接放到生产主机上运行
+- 命令默认在 bubblewrap 沙箱中执行，无 shell、默认无网络、只写工作区
+- `web_fetch` 拒绝私网、回环、链路本地与云元数据地址
+- 高危命令通过审批暂停，但 `process` 后端不是强安全边界；不要把不可信任务直接放到生产主机上运行
+- 审计表会记录参数摘要，已自动脱敏密钥字段；仍建议不要在工作区存放生产密钥
 
 如果曾经把 API Key 提交到源码、日志或截图，请立即到 provider 控制台轮换。
 
@@ -218,11 +274,11 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：28 passed
+- `pytest`：71 passed
 - `ruff`：All checks passed
-- `mypy`：Success，8 source files
+- `mypy`：Success，12 source files
 
-测试覆盖包括：路径穿越、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、checkpoint 恢复、上下文压缩。
+测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、checkpoint 恢复、上下文压缩、审计脱敏与统计。
 
 ---
 
@@ -232,7 +288,7 @@ uv run mypy
 |---|---|---|
 | Phase 0 | ✅ 完成 | 安全止血与工程底座：路径安全、密钥治理、日志、测试、CI |
 | Phase 1 | ✅ 完成 | LangGraph 内核：真流式、审批恢复、checkpoint、上下文压缩、并行工具、子代理 |
-| Phase 2 | 计划中 | 沙箱与工具策略：进程/容器隔离、命令策略、SSRF、资源配额 |
+| Phase 2 | ✅ 完成 | 沙箱与工具策略：bubblewrap/进程隔离、命令白名单、SSRF、资源配额、审计 |
 | Phase 3 | 计划中 | 能力扩展：Memory/RAG、官方 MCP SDK、Skills、定时任务、浏览器 |
 | Phase 4 | 计划中 | 单机交付：本地数据目录、密钥加密、桌面壳/安装包、自动更新、可观测性 |
 | Phase 5 | 计划中 | 开源发布：LICENSE、文档、示例、CI Release |

@@ -142,6 +142,7 @@ def print_help():
 [bold]内置交互指令：[/bold]
   [#59D6B3]/skills[/]    查看当前已安装的技能库
   [#59D6B3]/mcp[/]       查看当前挂载的 MCP 服务器与工具
+  [#59D6B3]/audit[/]     查看最近的工具执行审计记录
   [#59D6B3]/files[/]     列出 ./workspace 工作区文件
   [#59D6B3]/clear[/]     清空终端屏幕
   [#59D6B3]/help[/]      显示本帮助
@@ -181,6 +182,18 @@ async def interactive_mode():
                 servers = mcp_manager.list_server_status()
                 for s in servers:
                     console.print(f"• [bold #59D6B3]{s['name']}[/bold #59D6B3]: {s['tools_count']} tools [{', '.join(s['tools'])}]")
+                continue
+            elif prompt == "/audit":
+                import audit
+                rows = audit.list_tool_calls(session_id=session_id, limit=20)
+                if not rows:
+                    console.print("[dim]当前会话暂无审计记录。[/dim]")
+                for row in rows:
+                    console.print(
+                        f"[dim]#{row['id']}[/dim] [bold #59D6B3]{row['tool_name']}[/bold #59D6B3] "
+                        f"{row['risk_level']}/{row['decision']}/{row['status']} "
+                        f"[dim]{row['duration_ms']}ms[/dim]"
+                    )
                 continue
             elif prompt == "/models":
                 from model_manager import model_manager

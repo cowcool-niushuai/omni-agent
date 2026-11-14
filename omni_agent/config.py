@@ -43,6 +43,34 @@ class Settings(BaseSettings):
     context_max_tokens: int = 24_000
     context_keep_last: int = 12
 
+    # Phase 2: sandboxed execution and tool quotas.
+    sandbox_backend: str = "auto"  # auto | bwrap | process
+    sandbox_network: bool = False
+    sandbox_extra_ro_binds: str = ""
+    command_timeout_seconds: float = 30.0
+    command_max_memory_mb: int = 512
+    command_max_cpu_seconds: int = 30
+    command_max_file_mb: int = 50
+    command_max_processes: int = 64
+    command_max_output_bytes: int = 256_000
+    command_policy_mode: str = "strict"  # strict | permissive
+    python_eval_timeout_seconds: float = 30.0
+
+    tool_timeout_seconds: float = 60.0
+    subagent_timeout_seconds: float = 300.0
+    tool_max_output_chars: int = 12_000
+    tool_max_concurrency: int = 4
+    max_file_write_bytes: int = 10 * 1024 * 1024
+
+    web_fetch_timeout_seconds: float = 10.0
+    web_fetch_max_bytes: int = 2_000_000
+    web_fetch_max_redirects: int = 3
+    web_fetch_allowed_ports: str = "80,443,8080,8443"
+    allow_private_network: bool = False
+
+    mcp_request_timeout_seconds: float = 15.0
+    audit_enabled: bool = True
+
     @property
     def cors_origin_list(self) -> list[str]:
         origins = [item.strip() for item in self.cors_origins.split(",") if item.strip()]
@@ -53,6 +81,19 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() in {"prod", "production"}
+
+    @property
+    def sandbox_ro_bind_list(self) -> list[str]:
+        return [item.strip() for item in self.sandbox_extra_ro_binds.split(",") if item.strip()]
+
+    @property
+    def web_fetch_port_list(self) -> set[int]:
+        ports: set[int] = set()
+        for item in self.web_fetch_allowed_ports.split(","):
+            item = item.strip()
+            if item.isdigit():
+                ports.add(int(item))
+        return ports or {80, 443}
 
     def ensure_directories(self) -> None:
         self.workspace_dir.mkdir(parents=True, exist_ok=True)

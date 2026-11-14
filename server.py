@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+import audit
 import database
 import permission
 import skills_manager
@@ -39,6 +40,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await agent_core.close()
+        mcp_manager.stop_all()
         log.info("agent_runtime_closed")
 
 
@@ -206,6 +208,7 @@ async def api_mcp_tools():
 def _scan_workspace() -> list[dict]:
     items = []
     for root, dirs, files in os.walk(WORKSPACE_ROOT):
+        dirs[:] = [entry for entry in dirs if entry not in {".home", ".tmp"}]
         rel_root = os.path.relpath(root, WORKSPACE_ROOT)
         prefix = "" if rel_root == "." else rel_root + "/"
         for d in dirs:
@@ -305,6 +308,43 @@ async def api_list_subagents(session_id: Optional[str] = None):
 @app.get("/api/memories")
 async def api_get_memories():
     return database.get_all_memories()
+
+
+@app.get("/api/knowledge")
+async def api_get_knowledge():
+    return database.search_knowledge("", 50)
+
+# 9b. Audit & security policy API (Phase 2)
+@app.get("/api/audit")
+async def api_audit(
+    session_id: Optional[str] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    return audit.list_tool_calls(session_id=session_id, limit=limit, offset=offset)
+
+
+@app.get("/api/audit/stats")
+async def api_audit_stats(session_id: Optional[str] = None):
+    return audit.audit_stats(session_id)
+
+
+@app.get("/api/security/policy")
+async def api_security_policy():
+    from omni_agent.security.sandbox import detect_backend
+
+    return {
+        "sandbox_backend": detect_backend(settings.sandbox_backend),
+        "sandbox_network": settings.sandbox_network,
+        "command_policy_mode": settings.command_policy_mode,
+        "command_timeout_seconds": settings.command_timeout_seconds,
+        "tool_timeout_seconds": settings.tool_timeout_seconds,
+        "tool_max_output_chars": settings.tool_max_output_chars,
+        "max_file_write_bytes": settings.max_file_write_bytes,
+        "web_fetch_allowed_ports": sorted(settings.web_fetch_port_list),
+        "allow_private_network": settings.allow_private_network,
+        "audit_enabled": settings.audit_enabled,
+    }
 
 # 10. Multi-Provider & Model Management API
 @app.get("/api/models")

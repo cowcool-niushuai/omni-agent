@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import json
 import operator
+import re
+import time
 import uuid
 from pathlib import Path
 from typing import Annotated, Any, AsyncGenerator, Callable, TypedDict
@@ -26,6 +28,7 @@ from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
+import audit
 import database
 import permission
 import prompts
@@ -33,6 +36,8 @@ import tools
 from model_manager import model_manager
 from omni_agent.config import get_settings
 from omni_agent.runtime.context import maybe_compact
+from omni_agent.security.limits import truncate_text
+from omni_agent.security.sandbox import detect_backend
 
 log = structlog.get_logger("omni.runtime")
 
@@ -340,50 +345,114 @@ class AgentRuntime:
 
     async def _tools_node(self, state: AgentState) -> dict[str, Any]:
         session_id = str(state.get("session_id", ""))
+        turn_id = str(state.get("turn_id", ""))
         action = str(state.get("approval_action") or "REJECT")
         calls = state.get("pending_tool_calls") or []
         writer = _writer()
+        settings = self._settings
+        semaphore = asyncio.Semaphore(max(1, settings.tool_max_concurrency))
+        backend = detect_backend(settings.sandbox_backend)
 
         async def run_one(call: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-            name = str(call.get("name", ""))
-            arguments = call.get("arguments") or {}
-            tool_call_id = str(call.get("id", ""))
-            risk, reason = permission.classify_permission(name, arguments)
+            async with semaphore:
+                name = str(call.get("name", ""))
+                arguments = call.get("arguments") or {}
+                tool_call_id = str(call.get("id", ""))
+                risk, reason = permission.classify_permission(name, arguments)
+                started = time.perf_counter()
+                output = ""
+                status = "OK"
+                error: str | None = None
 
-            if risk == permission.PermissionRisk.DENY:
-                output = f"[严重越权拒绝] 系统已阻断该操作：{reason}"
-            elif risk == permission.PermissionRisk.ASK_USER and action != "APPROVE":
-                output = f"[用户拒绝] 该高危操作未获批准：{reason}"
-            else:
-                output = await self._execute_tool(
-                    session_id=session_id,
-                    name=name,
-                    arguments=arguments,
-                    tool_call_id=tool_call_id,
-                    writer=writer,
+                if risk == permission.PermissionRisk.DENY:
+                    output = f"[严重越权拒绝] 系统已阻断该操作：{reason}"
+                    status = "BLOCKED"
+                    decision = "DENIED"
+                elif (
+                    risk == permission.PermissionRisk.ASK_USER
+                    and action != "APPROVE"
+                ):
+                    output = f"[用户拒绝] 该高危操作未获批准：{reason}"
+                    status = "BLOCKED"
+                    decision = "REJECTED"
+                else:
+                    decision = (
+                        "APPROVED"
+                        if risk == permission.PermissionRisk.ASK_USER
+                        else "AUTO"
+                    )
+                    timeout = (
+                        settings.subagent_timeout_seconds
+                        if name == "spawn_subagent"
+                        else settings.tool_timeout_seconds
+                    )
+                    try:
+                        output = await asyncio.wait_for(
+                            self._execute_tool(
+                                session_id=session_id,
+                                name=name,
+                                arguments=arguments,
+                                tool_call_id=tool_call_id,
+                                writer=writer,
+                            ),
+                            timeout=timeout,
+                        )
+                        if output.startswith("工具执行发生异常"):
+                            status = "ERROR"
+                            error = output[:500]
+                    except TimeoutError:
+                        output = (
+                            f"[工具超时] {name} 执行超过 {timeout:g} 秒，"
+                            "已放弃等待。后台线程可能仍在收尾。"
+                        )
+                        status = "TIMEOUT"
+                        error = output
+
+                output = truncate_text(output, settings.tool_max_output_chars)
+                duration_ms = int((time.perf_counter() - started) * 1000)
+                exit_code_match = re.search(r"\[Exit code:\s*(-?\d+)\]", output)
+                exit_code = int(exit_code_match.group(1)) if exit_code_match else None
+                sandbox_name = backend if name in {"bash_run", "python_eval"} else None
+
+                if settings.audit_enabled:
+                    audit.record_tool_call(
+                        session_id=session_id,
+                        turn_id=turn_id or None,
+                        tool_call_id=tool_call_id,
+                        tool_name=name,
+                        arguments=arguments,
+                        risk_level=risk,
+                        decision=decision,
+                        status=status,
+                        sandbox=sandbox_name,
+                        exit_code=exit_code,
+                        duration_ms=duration_ms,
+                        output_chars=len(output),
+                        output_preview=output,
+                        error=error,
+                    )
+
+                _emit(
+                    writer,
+                    {
+                        "type": "tool_result",
+                        "tool_call_id": tool_call_id,
+                        "name": name,
+                        "result": output,
+                    },
                 )
-
-            _emit(
-                writer,
-                {
-                    "type": "tool_result",
-                    "tool_call_id": tool_call_id,
+                record = {
+                    "id": tool_call_id,
                     "name": name,
-                    "result": output,
-                },
-            )
-            record = {
-                "id": tool_call_id,
-                "name": name,
-                "arguments": arguments,
-                "output": output[:1000],
-            }
-            tool_message = {
-                "role": "tool",
-                "tool_call_id": tool_call_id,
-                "content": str(output),
-            }
-            return tool_message, record
+                    "arguments": arguments,
+                    "output": output[:1000],
+                }
+                tool_message = {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": str(output),
+                }
+                return tool_message, record
 
         results = await asyncio.gather(*(run_one(call) for call in calls))
         messages = [item[0] for item in results]
