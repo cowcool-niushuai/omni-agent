@@ -28,6 +28,7 @@ from omni_agent.security.commands import (
 )
 from omni_agent.security.paths import PathSecurityError, safe_join
 from omni_agent.security.ssrf import UnsafeURLError, validate_url_static
+from omni_agent.tenancy import current_project_id
 
 
 class PermissionRisk:
@@ -63,7 +64,9 @@ def permission_batch_id(session_id: str, tool_call_ids: list[str]) -> str:
 
 
 def _workspace_root() -> Path:
-    return Path(get_settings().workspace_dir).resolve()
+    from omni_agent import tenancy
+
+    return tenancy.current_workspace().resolve()
 
 
 def _check_workspace_path(filepath: str) -> tuple[bool, str]:
@@ -260,8 +263,8 @@ def create_permission_request(
     cursor.execute(
         """
         INSERT OR IGNORE INTO permission_requests
-            (id, session_id, tool_name, arguments, risk_level, reason, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
+            (id, session_id, tool_name, arguments, risk_level, reason, status, project_id)
+        VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)
         """,
         (
             request_id,
@@ -270,6 +273,7 @@ def create_permission_request(
             json.dumps(arguments, ensure_ascii=False),
             risk_level,
             reason,
+            current_project_id(),
         ),
     )
     conn.commit()
@@ -333,31 +337,46 @@ def reject_request(request_id: str) -> bool:
     return True
 
 
-def get_request_status(request_id: str) -> str:
+def get_request(request_id: str) -> dict[str, Any] | None:
     conn = database.get_db()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT status FROM permission_requests WHERE id = ?", (request_id,)
+        "SELECT * FROM permission_requests WHERE id = ?", (request_id,)
     )
     row = cursor.fetchone()
     conn.close()
-    if row:
-        return str(row["status"])
-    return "NOT_FOUND"
+    return dict(row) if row else None
 
 
-def pending_request_ids(session_id: str) -> list[str]:
+def get_request_status(request_id: str) -> str:
+    request = get_request(request_id)
+    return str(request["status"]) if request else "NOT_FOUND"
+
+
+def pending_request_ids(
+    session_id: str, *, project_id: str | None = None
+) -> list[str]:
     """All pending request ids for a session (used for batch approvals)."""
     conn = database.get_db()
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id FROM permission_requests
-        WHERE session_id = ? AND status = 'PENDING'
-        ORDER BY created_at ASC
-        """,
-        (session_id,),
-    )
+    if project_id:
+        cursor.execute(
+            """
+            SELECT id FROM permission_requests
+            WHERE session_id = ? AND project_id = ? AND status = 'PENDING'
+            ORDER BY created_at ASC
+            """,
+            (session_id, project_id),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT id FROM permission_requests
+            WHERE session_id = ? AND status = 'PENDING'
+            ORDER BY created_at ASC
+            """,
+            (session_id,),
+        )
     rows = cursor.fetchall()
     conn.close()
     return [str(row["id"]) for row in rows]

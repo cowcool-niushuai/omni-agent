@@ -21,6 +21,7 @@ import database
 import skills_manager
 from browser import browser_manager
 from mcp_manager import mcp_manager
+from omni_agent import tenancy
 from omni_agent.config import get_settings
 from omni_agent.security import PathSecurityError, safe_join
 from omni_agent.security.commands import DENY as COMMAND_DENY
@@ -35,9 +36,13 @@ from omni_agent.security.ssrf import (
 )
 
 _settings = get_settings()
-WORKSPACE_PATH = Path(_settings.workspace_dir).resolve()
-WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)
-WORKSPACE_ROOT = str(WORKSPACE_PATH)
+
+
+def _workspace_path() -> Path:
+    """Current project workspace, resolved for path containment checks."""
+    path = tenancy.current_workspace().resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 _REDIRECT_STATUS = {301, 302, 303, 307, 308}
 
@@ -45,7 +50,7 @@ _REDIRECT_STATUS = {301, 302, 303, 307, 308}
 def resolve_path(filepath: str) -> str:
     """Resolve a workspace-relative path and reject any escape attempt."""
     try:
-        return str(safe_join(WORKSPACE_PATH, filepath))
+        return str(safe_join(_workspace_path(), filepath))
     except PathSecurityError as exc:
         raise PathSecurityError(f"非法路径，已阻止越界访问: {filepath}") from exc
 
@@ -68,7 +73,7 @@ def tool_file_list(directory: str = ".") -> str:
     entries: list[str] = []
     for root, dirs, files in os.walk(target_dir):
         dirs[:] = [entry for entry in dirs if entry not in {".home", ".tmp"}]
-        rel_root = os.path.relpath(root, WORKSPACE_PATH)
+        rel_root = os.path.relpath(root, _workspace_path())
         prefix = "" if rel_root == "." else rel_root + "/"
         for entry in dirs:
             entries.append(f"[DIR]  {prefix}{entry}")
@@ -105,7 +110,7 @@ def tool_file_read(filepath: str, start_line: int = 1, end_line: int = 200) -> s
             return f"行号范围无效: {start}-{end_line}"
 
         output = [
-            f"--- File: {os.path.relpath(path, WORKSPACE_PATH)} "
+            f"--- File: {os.path.relpath(path, _workspace_path())} "
             f"(Total {total} lines, showing {start}-{end}) ---"
         ]
         for index in range(start, end + 1):
@@ -134,7 +139,7 @@ def tool_file_write(filepath: str, content: str) -> str:
     try:
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(content)
-        return f"成功写入文件: {os.path.relpath(path, WORKSPACE_PATH)} ({len(content)} 字符)"
+        return f"成功写入文件: {os.path.relpath(path, _workspace_path())} ({len(content)} 字符)"
     except Exception as exc:
         return f"写入文件失败: {exc}"
 
@@ -159,7 +164,7 @@ def tool_file_edit(filepath: str, target: str, replacement: str) -> str:
             return error
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(new_content)
-        return f"成功局部修改文件: {os.path.relpath(path, WORKSPACE_PATH)}"
+        return f"成功局部修改文件: {os.path.relpath(path, _workspace_path())}"
     except Exception as exc:
         return f"文件编辑失败: {exc}"
 
@@ -205,7 +210,7 @@ def tool_bash_run(command: str) -> str:
     """
     assessment = assess_command(
         command,
-        WORKSPACE_PATH,
+        _workspace_path(),
         policy_mode=_settings.command_policy_mode,
     )
     if assessment.risk == COMMAND_DENY:
@@ -213,7 +218,7 @@ def tool_bash_run(command: str) -> str:
 
     result = run_command(
         assessment.argv,
-        cwd=WORKSPACE_PATH,
+        cwd=_workspace_path(),
         timeout=_settings.command_timeout_seconds,
         backend=_settings.sandbox_backend,
         network=_settings.sandbox_network,
@@ -238,7 +243,7 @@ def tool_bash_run(command: str) -> str:
 def tool_python_eval(code: str) -> str:
     result = run_command(
         [sys.executable, "-c", code],
-        cwd=WORKSPACE_PATH,
+        cwd=_workspace_path(),
         timeout=_settings.python_eval_timeout_seconds,
         backend=_settings.sandbox_backend,
         network=_settings.sandbox_network,
@@ -434,6 +439,7 @@ def tool_browser(
         "full_page": full_page,
         "filename": filename,
         "milliseconds": milliseconds,
+        "_workspace": str(tenancy.current_workspace()),
     }
     return browser_manager.run(action, arguments)
 

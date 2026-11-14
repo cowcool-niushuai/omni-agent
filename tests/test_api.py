@@ -46,7 +46,10 @@ def test_api_token_protects_api(monkeypatch) -> None:
     assert guard.get("/api/models").status_code == 401
     status = guard.get("/api/auth/status")
     assert status.status_code == 200
-    assert status.json() == {"required": True, "authenticated": False}
+    payload = status.json()
+    assert payload["required"] is True
+    assert payload["authenticated"] is False
+    assert payload["mode"] == "token"
 
     authorized = guard.get(
         "/api/models", headers={"Authorization": "Bearer test-token"}

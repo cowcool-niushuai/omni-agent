@@ -3,9 +3,9 @@
 > 一个可本地运行、可扩展、可恢复的开源 AI Agent 应用。
 > Web UI + CLI + 真实工具执行 + MCP + Skills + Human-in-the-loop 审批。
 
-OmniAgent 是一个**单机单用户**的通用智能体应用：它不只回答问题，还能在工作区里读写文件、执行命令、运行 Python、调用 MCP 工具，并在高危操作前暂停，等待你批准后继续执行。
+OmniAgent 是一个**可本地单机运行、也可切换为团队模式**的通用智能体应用：它不只回答问题，还能在工作区里读写文件、执行命令、运行 Python、调用 MCP 工具，并在高危操作前暂停，等待你批准后继续执行。
 
-项目当前已完成 **Phase 3（能力扩展）**，并完成 **Phase 4.0 生产化基础**：Phase 2 的沙箱、命令策略、SSRF 与审计，Phase 3 的本地 Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配与无头浏览器自动化，以及会话生命周期、可选 API Token、系统信息和前端交互完善均已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
+项目当前已完成 **Phase 3（能力扩展）**、**Phase 4.0 生产化基础**，以及 **Phase 4.1 团队版身份与项目隔离（M2）**：Phase 2 的沙箱、命令策略、SSRF 与审计，Phase 3 的本地 Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配与无头浏览器自动化，以及会话生命周期、可选 API Token、用户/团队/项目、RBAC、项目级工作区与审计导出均已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
 
 ---
 
@@ -216,19 +216,61 @@ GET    /api/sessions/{id}/export
 GET    /api/system/info
 ```
 
-可选单管理员 API Token：
+### 15. 团队版：身份、RBAC 与项目隔离
+
+默认仍是**本地单管理员模式**，不改变原有使用方式。设置：
 
 ```bash
-OMNI_API_TOKEN=<long-random-token>
+AUTH_REQUIRED=true
 ```
 
-启用后，所有 `/api/*` 请求都需要：
+后切换为团队模式：
+
+- 用户名 / 密码登录，密码使用 PBKDF2-SHA256 加盐哈希存储
+- HttpOnly Cookie 会话，写操作强制 CSRF 校验
+- 登录限流、失败锁定、会话过期与主动退出
+- 用户角色：`admin` / `member` / `viewer`
+- 团队角色：`owner` / `admin` / `member`
+- 项目成员继承团队角色；`viewer` 全局只读，不能创建会话或修改资源
+- 会话、记忆、知识库、定时任务、审计记录和工作区目录全部按项目隔离
+- 默认项目继续使用 `workspace/`；其他项目使用 `data/project_workspaces/<project_id>/`，不会嵌套在默认工作区中，避免默认项目通过路径或沙箱访问其他项目文件
+- 侧边栏可切换项目，前端自动发送 `X-Project-ID`
+- API Token 支持作用域（如 `sessions:read`、`chat:write`），明文只在创建时展示一次
+- 审计记录支持按项目导出 CSV，管理员可按保留天数清理
+
+相关 API：
 
 ```text
-Authorization: Bearer <token>
+GET    /api/auth/status
+POST   /api/auth/login
+POST   /api/auth/logout
+GET    /api/auth/me
+POST   /api/auth/password
+GET    /api/users
+POST   /api/users
+PATCH  /api/users/{id}
+GET    /api/teams
+POST   /api/teams
+GET    /api/teams/{id}/members
+POST   /api/teams/{id}/members
+GET    /api/projects
+POST   /api/projects
+PATCH  /api/projects/{id}
+GET    /api/projects/{id}/stats
+GET    /api/tokens
+POST   /api/tokens
+DELETE /api/tokens/{id}
+GET    /api/audit/export
+POST   /api/audit/purge
 ```
 
-`/health` 和 `/api/auth/status` 保持公开，分别用于探针和登录状态检查。Web UI 会在需要时弹出令牌输入框，令牌只保存在本机浏览器 `localStorage`。
+首次启动且数据库中没有用户时，会自动创建管理员：
+
+- 用户名由 `ADMIN_USERNAME` 决定，默认 `admin`
+- 密码优先读取 `OMNI_ADMIN_PASSWORD`
+- 未设置时生成随机密码，写入 `data/.initial_admin_password`（权限 `0600`）
+
+项目管理、团队成员、用户和 Token 都可以在 Web UI 的“团队管理”页完成。旧的单用户数据会自动迁移到默认团队 `默认团队` 和默认项目 `默认项目`，原 `workspace/` 继续作为默认项目工作区。
 
 企业级差距与后续路线见 [`docs/ENTERPRISE_ROADMAP.md`](docs/ENTERPRISE_ROADMAP.md)。
 
@@ -272,6 +314,7 @@ omni-agent/
 ├── omni_agent/
 │   ├── config.py              # pydantic-settings 配置
 │   ├── logging_config.py      # structlog
+│   ├── tenancy.py             # 请求级租户上下文（用户/团队/项目/工作区）
 │   ├── security/
 │   │   ├── paths.py           # 路径越界防护
 │   │   ├── commands.py        # 命令白名单、参数校验、SQL 只读策略
@@ -365,8 +408,20 @@ make check      # 全部检查
 | `ANTHROPIC_API_KEY` | Anthropic API Key | 无 |
 | `HOST` | 监听地址 | `127.0.0.1` |
 | `PORT` | 监听端口 | `8001` |
-| `OMNI_API_TOKEN` | 可选单管理员 API Token；留空关闭认证 | 无 |
-| `WORKSPACE_DIR` | 工作区目录 | `./workspace` |
+| `OMNI_API_TOKEN` | 可选单管理员 API Token（兼容模式）；留空关闭 | 无 |
+| `AUTH_REQUIRED` | 启用团队模式（登录 + Cookie 会话 + RBAC） | `false` |
+| `AUTH_COOKIE_NAME` | 登录 Cookie 名称 | `omni_session` |
+| `AUTH_COOKIE_SECURE` | Cookie 是否仅 HTTPS；生产环境应开启 | `false` |
+| `AUTH_COOKIE_SAMESITE` | Cookie SameSite 策略 | `lax` |
+| `AUTH_SESSION_DAYS` | 登录会话有效天数 | `7` |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | 登录接口每分钟限流 | `30` |
+| `AUTH_MAX_FAILED_ATTEMPTS` | 连续失败锁定阈值 | `5` |
+| `AUTH_LOCKOUT_SECONDS` | 锁定时长 | `300` |
+| `ADMIN_USERNAME` | 初始管理员用户名 | `admin` |
+| `ADMIN_EMAIL` | 初始管理员邮箱 | 无 |
+| `OMNI_ADMIN_PASSWORD` | 初始管理员密码；留空自动生成 | 无 |
+| `AUDIT_RETENTION_DAYS` | 审计保留天数 | `180` |
+| `WORKSPACE_DIR` | 默认项目工作区目录 | `./workspace` |
 | `DATA_DIR` | checkpoint 等数据目录 | `./data` |
 | `CONTEXT_MAX_TOKENS` | 上下文压缩阈值 | `24000` |
 | `CONTEXT_KEEP_LAST` | 压缩时保留的最近消息数 | `12` |
@@ -409,7 +464,8 @@ make check      # 全部检查
 
 - `.env`、`model_config.json`、`*.db`、`workspace/`、`data/` 均不入库
 - 密钥只从环境变量读取；`.env` 权限应为 `600`
-- 默认只监听 `127.0.0.1`，不对外暴露；暴露到网络前必须设置 `OMNI_API_TOKEN` 或放在反向代理鉴权之后
+- 默认只监听 `127.0.0.1`，不对外暴露；暴露到网络前必须设置 `AUTH_REQUIRED=true`（团队模式）或 `OMNI_API_TOKEN`（兼容 Token 模式），并建议放在 TLS 反向代理之后
+- 团队模式务必设置 `AUTH_COOKIE_SECURE=true`，并使用强随机 `OMNI_ADMIN_PASSWORD`
 - 文件路径统一经过 `safe_join`，阻止 `../` 与符号链接逃逸
 - 命令默认在 bubblewrap 沙箱中执行，无 shell、默认无网络、只写工作区
 - `web_fetch` 拒绝私网、回环、链路本地与云元数据地址
@@ -430,11 +486,11 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：112 passed
+- `pytest`：121 passed
 - `ruff`：All checks passed
-- `mypy`：Success，12 source files
+- `mypy`：Success，13 source files
 
-测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护。
+测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护、密码哈希、登录与 CSRF、项目隔离、跨项目访问拒绝、viewer 只读、Token 作用域、审批请求项目隔离、最后一个管理员保护。
 
 ---
 
@@ -447,7 +503,8 @@ uv run mypy
 | Phase 2 | ✅ 完成 | 沙箱与工具策略：bubblewrap/进程隔离、命令白名单、SSRF、资源配额、审计 |
 | Phase 3 | ✅ 完成 | 能力扩展：Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配、Skills、无头浏览器自动化 |
 | Phase 4.0 | ✅ 完成 | 生产化基础：会话生命周期、搜索/导出、可选 API Token、系统信息、前端交互完善 |
-| Phase 4 | 🚧 进行中 | 企业级平台：身份/租户、RBAC、项目与文件、可观测性、Docker/备份、插件与 SDK |
+| Phase 4.1 | ✅ 完成 | 团队版 M2：用户/团队/项目、登录与 CSRF、RBAC、API Token 作用域、项目隔离、审计导出 |
+| Phase 4 | 🚧 进行中 | 企业级平台：文件/预览、可观测性、Docker/备份、插件与 SDK |
 | Phase 5 | 计划中 | 开源发布：LICENSE、文档、示例、CI Release |
 
 ---

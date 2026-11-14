@@ -41,6 +41,23 @@ class Settings(BaseSettings):
     workspace_dir: Path = BASE_DIR / "workspace"
     data_dir: Path = BASE_DIR / "data"
 
+    # Phase 4.1: multi-user auth / RBAC.
+    auth_required: bool = False
+    auth_cookie_name: str = "omni_session"
+    auth_cookie_secure: bool = False
+    auth_cookie_samesite: str = "lax"
+    auth_session_days: int = 7
+    auth_rate_limit_per_minute: int = 30
+    auth_max_failed_attempts: int = 5
+    auth_lockout_seconds: int = 300
+    admin_username: str = "admin"
+    admin_email: str = ""
+    admin_password: str = Field(
+        default="",
+        validation_alias=AliasChoices("OMNI_ADMIN_PASSWORD", "ADMIN_PASSWORD"),
+    )
+    audit_retention_days: int = 180
+
     cors_origins: str = ""
     log_level: str = "INFO"
     log_json: bool = False

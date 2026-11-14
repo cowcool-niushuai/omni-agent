@@ -30,6 +30,7 @@ class FakeRuntime:
         *,
         max_iterations: int | None = None,
         approval_mode: str = "human",
+        tenant: Any = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         self.calls.append(
             {

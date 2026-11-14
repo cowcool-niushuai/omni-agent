@@ -18,18 +18,21 @@ OmniAgent 已经具备：
 - 会话删除、重命名、搜索、清空、Markdown 导出
 - 可选单管理员 API Token
 - `/api/system/info` 运行状态与存储统计
+- 团队模式：用户/团队/项目、登录 Cookie + CSRF、RBAC、API Token 作用域
+- 项目级会话、记忆、知识库、定时任务、审计和工作区隔离
+- 审计 CSV 导出与保留期清理
 
-这些能力足以支撑单机、可信环境下的重度使用，但还不是企业级多租户平台。
+这些能力足以支撑小团队在可信网络内使用，但距离完整企业平台仍有差距（SSO、PostgreSQL、对象存储、可观测性、插件生态）。
 
 ## 2. 企业级差距矩阵
 
 | 能力 | 当前状态 | 目标 | 优先级 |
 |---|---|---|---|
 | 会话生命周期 | 删除/重命名/搜索/清空/导出 | 归档、批量操作、保留策略、回收站 | P0 |
-| 认证 | 可选单管理员 Token | 用户、登录、会话 Cookie、API Token 管理 | P0 |
-| 权限 | 工具级风险审批 | RBAC、项目级工具权限、审批人角色 | P0 |
-| 多租户 | 单机单用户 | 用户/团队/项目隔离，数据归属 | P0 |
-| 项目 | 单一 workspace | Project、项目指令、项目文件、项目记忆 | P1 |
+| 认证 | 本地模式 / 用户登录 Cookie / API Token 作用域 | OIDC/SSO、MFA、密码策略 | P1 |
+| 权限 | admin/member/viewer + 团队角色 | 项目级工具权限、审批人角色 | P1 |
+| 多租户 | 用户/团队/项目隔离（SQLite） | 组织/部门、PostgreSQL、跨租户管理 | P1 |
+| 项目 | 独立 workspace/memory/knowledge/scheduler | 项目指令、默认模型、工具策略、配额 | P1 |
 | 文件 | 工作区文件列表 | 上传、预览、下载、配额、Office/PDF | P1 |
 | 可观测性 | structlog、审计、system info | Token 用量、Trace、Metrics、OTel/Langfuse | P1 |
 | 部署 | 本地 uvicorn | Docker、Compose、健康检查、备份恢复 | P1 |
@@ -61,15 +64,18 @@ OmniAgent 已经具备：
 - 导出文件不包含 API Key
 - 前端不因历史对话为空/被删除而白屏
 
-### Phase 4.1 身份、权限与租户
+### Phase 4.1 身份、权限与租户（已完成）
 
-- `users`、`api_tokens`、`projects` 表
-- 会话归属 `owner_id` / `project_id`
-- 管理员、成员、只读角色
-- 项目级工具策略：允许/拒绝/需审批
-- 审计保留策略与导出
-- 登录限流、CSRF、防暴力破解
-- API Token 作用域（只读、会话、工具）
+- [x] `users`、`teams`、`team_members`、`projects`、`api_tokens`、`user_sessions` 表
+- [x] 会话归属 `owner_id` / `project_id`
+- [x] 管理员、成员、只读角色，以及团队 owner/admin/member
+- [x] 项目级会话、记忆、知识库、定时任务、审计、工作区隔离
+- [x] 审计保留策略与 CSV 导出
+- [x] 登录限流、CSRF、失败锁定、会话过期
+- [x] API Token 作用域（会话、聊天、记忆、知识库、审计等）
+- [x] 前端登录、项目切换、团队/用户/Token 管理
+- [ ] 项目级工具策略：允许/拒绝/需审批（后续）
+- [ ] OIDC/SSO、MFA（后续）
 
 ### Phase 4.2 项目与工作区
 
@@ -137,4 +143,4 @@ OmniAgent 已经具备：
 
 ## 5. 建议的下一步
 
-优先做 **Phase 4.1 身份与租户**，因为它是多用户、项目隔离、审计合规和 API Token 作用域的前置条件。做完后再进入 Project/文件/可观测性，避免在单用户模型上堆叠无法治理的功能。
+**Phase 4.1 身份与租户**已完成，它解决了多用户、项目隔离、审计合规和 API Token 作用域的前置条件。下一步优先补齐项目级配置（指令、默认模型、工具策略）与文件/预览，再进入 PostgreSQL、可观测性和插件生态。

@@ -16,6 +16,7 @@ from typing import Any
 import structlog
 
 import database
+from omni_agent import tenancy
 from omni_agent.config import get_settings
 from omni_agent.runtime.graph import runtime as default_runtime
 from omni_agent.security.limits import truncate_text
@@ -139,10 +140,22 @@ class Scheduler:
         """Run one scheduled task now and persist its outcome."""
         if task_id in self._running:
             return {"started": False, "task_id": task_id, "reason": "already_running"}
-        task = database.get_scheduled_task(task_id)
+        task = database.get_scheduled_task(task_id, include_all=True)
         if not task:
             return {"started": False, "task_id": task_id, "reason": "not_found"}
 
+        project_id = str(task.get("project_id") or tenancy.DEFAULT_PROJECT_ID)
+        context = tenancy.TenantContext(
+            user_id=str(task.get("owner_id") or tenancy.DEFAULT_USER_ID),
+            project_id=project_id,
+            team_id=tenancy.get_context().team_id,
+            workspace=tenancy.project_workspace(project_id),
+            role="member",
+            team_role="member",
+            scopes=frozenset({"*"}),
+            auth_type="scheduler",
+        )
+        token = tenancy.set_context(context)
         self._running.add(task_id)
         database.mark_scheduled_task_running(task_id)
         session_id = str(task["session_id"])
@@ -163,6 +176,7 @@ class Scheduler:
                     session_id,
                     str(task["prompt"]),
                     approval_mode="auto_reject",
+                    tenant=context,
                 )
                 async with aclosing(stream):
                     async for event in stream:
@@ -196,6 +210,7 @@ class Scheduler:
             log.exception("scheduled_task_failed", task_id=task_id)
         finally:
             self._running.discard(task_id)
+            tenancy.reset_context(token)
 
         after = database.get_session_messages(session_id)
         final_answer = next(

@@ -202,9 +202,10 @@ class BrowserManager:
         if action == "screenshot":
             filename = str(arguments.get("filename", "")).strip()
             if filename:
-                path = safe_join(
-                    Path(settings.workspace_dir).resolve() / "browser", filename
-                )
+                workspace = Path(
+                    str(arguments.get("_workspace") or settings.workspace_dir)
+                ).resolve()
+                path = safe_join(workspace / "browser", filename)
                 if path.suffix.lower() != ".png":
                     raise BrowserError("截图文件名必须以 .png 结尾")
 
@@ -485,7 +486,10 @@ class BrowserManager:
 
     def _screenshot(self, page: Any, arguments: dict[str, Any]) -> str:
         settings = get_settings()
-        root = Path(settings.workspace_dir).resolve() / "browser"
+        workspace = Path(
+            str(arguments.get("_workspace") or settings.workspace_dir)
+        ).resolve()
+        root = workspace / "browser"
         filename = str(arguments.get("filename", "")).strip()
         if not filename:
             filename = f"shot_{int(time.time() * 1000)}.png"
@@ -500,7 +504,7 @@ class BrowserManager:
                 "截图失败: 图片过大"
                 f"（{size} bytes，上限 {settings.browser_screenshot_max_bytes} bytes）"
             )
-        relative = os.path.relpath(path, Path(settings.workspace_dir).resolve())
+        relative = os.path.relpath(path, workspace)
         return (
             f"截图已保存: {relative}\n大小: {size} bytes\nURL: {page.url}"
         )

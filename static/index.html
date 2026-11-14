@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OmniAgent - Codex Minimalist Edition</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2315201D'/%3E%3Cpath d='M9 10h6a7 7 0 0 1 0 14H9z' fill='%2359D6B3'/%3E%3C/svg%3E">
   <!-- Local assets: the console works without public CDNs / Internet access. -->
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/vendor/github.min.css">
@@ -45,6 +46,15 @@
         <div id="service-status-dot" class="w-2 h-2 rounded-full bg-[#59D6B3]" title="服务在线"></div>
       </div>
 
+      <!-- 团队项目切换 -->
+      <div id="project-switcher" class="px-1 mb-2">
+        <div class="flex items-center gap-1.5 px-2 mb-1">
+          <i data-lucide="folder-kanban" class="w-3 h-3 text-[#7A8C87]"></i>
+          <span class="text-[10px] font-medium text-[#7A8C87]">当前项目</span>
+        </div>
+        <select id="project-select" onchange="switchProject(this.value)" class="w-full bg-[#F5F8F7] border border-[#E3ECE9] rounded-lg px-2 py-1.5 text-[11px] text-[#15201D] focus:outline-none focus:border-[#B8CCC6]"></select>
+      </div>
+
       <!-- 核心动作 -->
       <button onclick="createNewSession()" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-[#15201D] hover:bg-[#EDF3F1] transition-all mb-2">
         <i data-lucide="edit-3" class="w-4 h-4 text-[#7A8C87]"></i>
@@ -80,6 +90,10 @@
         <button onclick="switchTab('memory')" id="nav-memory" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-[#7A8C87] hover:text-[#15201D] hover:bg-[#F2F6F5] transition-all">
           <i data-lucide="database" class="w-4 h-4"></i>
           <span>记忆中枢</span>
+        </button>
+        <button onclick="switchTab('team')" id="nav-team" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-[#7A8C87] hover:text-[#15201D] hover:bg-[#F2F6F5] transition-all">
+          <i data-lucide="users" class="w-4 h-4"></i>
+          <span>团队管理</span>
         </button>
       </nav>
 
@@ -410,6 +424,98 @@
       </div>
     </div>
 
+    <!-- 8. TEAM / PROJECTS / USERS -->
+    <div id="tab-team" class="hidden flex-1 flex flex-col h-full p-6 overflow-y-auto">
+      <div class="max-w-5xl mx-auto w-full space-y-4">
+        <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-base font-bold text-[#15201D]">当前身份</h2>
+              <p id="team-current-user" class="text-[11px] text-[#7A8C87] mt-1">未登录</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="team-current-role" class="text-[10px] font-mono px-2 py-1 rounded-lg bg-[#F5F8F7] text-[#7A8C87]"></span>
+              <button onclick="logout()" class="px-3 py-1.5 rounded-xl border border-[#E3ECE9] text-xs text-[#7A8C87] hover:bg-[#F2F6F5]">退出登录</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-base font-bold text-[#15201D]">项目空间</h2>
+              <p class="text-[11px] text-[#7A8C87] mt-0.5">会话、记忆、知识库、定时任务和文件工作区都按项目隔离。</p>
+            </div>
+            <span id="project-count" class="text-[10px] font-mono text-[#7A8C87]"></span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
+            <input id="team-project-name" placeholder="项目名称" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+            <input id="team-project-desc" placeholder="项目说明" class="md:col-span-2 bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+            <select id="team-project-team" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]"></select>
+          </div>
+          <div class="flex justify-end">
+            <button onclick="createProject()" class="px-3.5 py-2 rounded-xl bg-[#15201D] text-white text-xs font-semibold">新建项目</button>
+          </div>
+          <div id="team-projects" class="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3"></div>
+        </section>
+
+        <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-base font-bold text-[#15201D]">团队与成员</h2>
+              <p class="text-[11px] text-[#7A8C87] mt-0.5">团队管理员可添加成员并调整成员角色。</p>
+            </div>
+            <span id="team-count" class="text-[10px] font-mono text-[#7A8C87]"></span>
+          </div>
+          <div id="team-admin-create" class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
+            <input id="team-new-name" placeholder="团队名称" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+            <input id="team-new-desc" placeholder="团队说明" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+            <button onclick="createTeam()" class="px-3 py-2 rounded-xl bg-[#15201D] text-white text-xs font-semibold">新建团队</button>
+          </div>
+          <div id="team-list" class="space-y-2"></div>
+        </section>
+
+        <section id="team-users-section" class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-base font-bold text-[#15201D]">用户管理</h2>
+              <p class="text-[11px] text-[#7A8C87] mt-0.5">仅全局管理员可见；支持禁用账号和重置密码。</p>
+            </div>
+            <span id="user-count" class="text-[10px] font-mono text-[#7A8C87]"></span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-5 gap-2 mb-2">
+            <input id="user-new-username" placeholder="用户名" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs font-mono text-[#15201D]">
+            <input id="user-new-display" placeholder="显示名" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+            <input id="user-new-password" type="password" placeholder="初始密码 ≥8 位" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+            <select id="user-new-role" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+              <option value="member">成员</option>
+              <option value="viewer">只读</option>
+              <option value="admin">管理员</option>
+            </select>
+            <button onclick="createUser()" class="px-3 py-2 rounded-xl bg-[#15201D] text-white text-xs font-semibold">创建用户</button>
+          </div>
+          <div id="user-list" class="space-y-2"></div>
+        </section>
+
+        <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-base font-bold text-[#15201D]">API Token</h2>
+              <p class="text-[11px] text-[#7A8C87] mt-0.5">脚本或外部集成使用；明文只在创建时显示一次。</p>
+            </div>
+            <span id="token-count" class="text-[10px] font-mono text-[#7A8C87]"></span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
+            <input id="token-new-name" placeholder="Token 名称" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+            <input id="token-new-scopes" placeholder="权限，逗号分隔，默认 *" class="md:col-span-2 bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs font-mono text-[#15201D]">
+            <button onclick="createToken()" class="px-3 py-2 rounded-xl bg-[#15201D] text-white text-xs font-semibold">创建 Token</button>
+          </div>
+          <div id="token-reveal" class="hidden mb-3 rounded-xl border border-[#B8DCCB] bg-[#EDF7F1] p-3"></div>
+          <div id="token-list" class="space-y-2"></div>
+        </section>
+      </div>
+    </div>
+
   </main>
 
   <!-- 模态框：新增技能 -->
@@ -432,20 +538,26 @@
     </div>
   </div>
 
-  <!-- 模态框：API Token 登录 -->
+  <!-- 模态框：团队登录 / API Token -->
   <div id="modal-auth" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden items-center justify-center p-4 z-[70]">
     <div class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl w-full max-w-sm p-5 shadow-xl">
       <div class="flex items-center gap-2 mb-2">
         <div class="w-8 h-8 rounded-xl bg-[#15201D] text-[#59D6B3] flex items-center justify-center"><i data-lucide="lock-keyhole" class="w-4 h-4"></i></div>
         <div>
-          <h3 class="text-sm font-bold text-[#15201D]">需要访问令牌</h3>
-          <p class="text-[10px] text-[#7A8C87]">服务已启用 API Token 保护</p>
+          <h3 id="auth-modal-title" class="text-sm font-bold text-[#15201D]">登录 OmniAgent</h3>
+          <p id="auth-modal-desc" class="text-[10px] text-[#7A8C87]">使用团队账号进入控制台</p>
         </div>
       </div>
-      <p class="text-xs text-[#7A8C87] leading-relaxed mb-3">请输入服务端配置的 <code class="font-mono">OMNI_API_TOKEN</code>。令牌只保存在本机浏览器。</p>
-      <input id="auth-token-input" type="password" placeholder="API Token" onkeydown="if(event.key==='Enter') saveAuthToken()" class="w-full bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl p-2.5 text-xs font-mono text-[#15201D] focus:outline-none focus:border-[#B8CCC6]">
+      <div id="auth-login-panel" class="space-y-2">
+        <input id="auth-username" autocomplete="username" placeholder="用户名" onkeydown="if(event.key==='Enter') loginWithPassword()" class="w-full bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl p-2.5 text-xs font-mono text-[#15201D] focus:outline-none focus:border-[#B8CCC6]">
+        <input id="auth-password" type="password" autocomplete="current-password" placeholder="密码" onkeydown="if(event.key==='Enter') loginWithPassword()" class="w-full bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl p-2.5 text-xs text-[#15201D] focus:outline-none focus:border-[#B8CCC6]">
+      </div>
+      <div id="auth-token-panel" class="hidden space-y-2">
+        <p class="text-xs text-[#7A8C87] leading-relaxed">请输入服务端配置的 <code class="font-mono">OMNI_API_TOKEN</code>。令牌只保存在本机浏览器。</p>
+        <input id="auth-token-input" type="password" placeholder="API Token" onkeydown="if(event.key==='Enter') saveAuthToken()" class="w-full bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl p-2.5 text-xs font-mono text-[#15201D] focus:outline-none focus:border-[#B8CCC6]">
+      </div>
       <div class="mt-4 flex justify-end gap-2">
-        <button onclick="saveAuthToken()" class="px-3.5 py-1.5 rounded-xl bg-[#15201D] text-white text-xs font-semibold">进入控制台</button>
+        <button id="auth-submit-btn" onclick="submitAuth()" class="px-3.5 py-1.5 rounded-xl bg-[#15201D] text-white text-xs font-semibold">登录</button>
       </div>
     </div>
   </div>
@@ -523,28 +635,58 @@
 
   <script>
     const nativeFetch = window.fetch.bind(window);
+    let authMode = 'team';
+    let authStatus = { required: false, authenticated: false, mode: 'local' };
+    let currentUser = null;
+    let currentProjectId = localStorage.getItem('omni_project_id') || '';
+    let projectsCache = [];
+    let teamsCache = [];
+    let usersCache = [];
+    let tokensCache = [];
+
     window.fetch = function(input, init) {
       const url = typeof input === 'string' ? input : (input && input.url) || '';
       const options = init ? {...init} : {};
-      if (url.startsWith('/api')) {
+      if (url.startsWith('/api') && !url.includes('/api/auth/login')) {
+        options.headers = new Headers(options.headers || {});
         const token = localStorage.getItem('omni_api_token');
-        if (token) {
-          options.headers = new Headers(options.headers || {});
-          options.headers.set('Authorization', `Bearer ${token}`);
-        }
+        if (token) options.headers.set('Authorization', `Bearer ${token}`);
+        if (window.__csrfToken) options.headers.set('X-CSRF-Token', window.__csrfToken);
+        if (currentProjectId) options.headers.set('X-Project-ID', currentProjectId);
+        if (!options.credentials) options.credentials = 'same-origin';
       }
       return nativeFetch(input, options).then((response) => {
-        if (response.status === 401) showAuthModal();
+        if (response.status === 401 && !url.includes('/api/auth/status')) showAuthModal(authMode);
         return response;
       });
     };
 
-    function showAuthModal() {
+    function showAuthModal(mode) {
       const modal = document.getElementById('modal-auth');
       if (!modal) return;
+      authMode = mode || authMode || 'team';
+      const loginPanel = document.getElementById('auth-login-panel');
+      const tokenPanel = document.getElementById('auth-token-panel');
+      const title = document.getElementById('auth-modal-title');
+      const desc = document.getElementById('auth-modal-desc');
+      const submit = document.getElementById('auth-submit-btn');
+      if (authMode === 'token') {
+        loginPanel.classList.add('hidden');
+        tokenPanel.classList.remove('hidden');
+        title.textContent = '需要访问令牌';
+        desc.textContent = '服务已启用 API Token 保护';
+        submit.textContent = '进入控制台';
+        setTimeout(() => document.getElementById('auth-token-input').focus(), 30);
+      } else {
+        tokenPanel.classList.add('hidden');
+        loginPanel.classList.remove('hidden');
+        title.textContent = '登录 OmniAgent';
+        desc.textContent = '使用团队账号进入控制台';
+        submit.textContent = '登录';
+        setTimeout(() => document.getElementById('auth-username').focus(), 30);
+      }
       modal.classList.remove('hidden');
       modal.classList.add('flex');
-      setTimeout(() => document.getElementById('auth-token-input').focus(), 30);
     }
 
     function hideAuthModal() {
@@ -552,6 +694,39 @@
       if (!modal) return;
       modal.classList.add('hidden');
       modal.classList.remove('flex');
+    }
+
+    function submitAuth() {
+      if (authMode === 'token') saveAuthToken();
+      else loginWithPassword();
+    }
+
+    async function loginWithPassword() {
+      const username = document.getElementById('auth-username').value.trim();
+      const password = document.getElementById('auth-password').value;
+      if (!username || !password) {
+        toast('请输入用户名和密码。', 'error');
+        return;
+      }
+      try {
+        const res = await nativeFetch('/api/auth/login', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({username, password}),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast(data.detail || '登录失败', 'error');
+          return;
+        }
+        window.__csrfToken = data.csrf_token || '';
+        localStorage.removeItem('omni_api_token');
+        hideAuthModal();
+        window.location.reload();
+      } catch (e) {
+        toast('无法连接服务。', 'error');
+      }
     }
 
     async function saveAuthToken() {
@@ -581,11 +756,74 @@
       try {
         const res = await fetch('/api/auth/status');
         const data = await res.json();
-        if (data.required && !data.authenticated) showAuthModal();
-        else hideAuthModal();
+        authStatus = data;
+        authMode = data.mode || 'team';
+        window.__csrfToken = data.csrf_token || window.__csrfToken || '';
+        if (data.required && !data.authenticated) {
+          showAuthModal(authMode);
+          return;
+        }
+        hideAuthModal();
+        if (data.authenticated || !data.required) await loadMe();
       } catch (e) {
-        showAuthModal();
+        showAuthModal(authMode);
       }
+    }
+
+    async function loadMe() {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (!res.ok) return;
+        const data = await res.json();
+        currentUser = data.user || null;
+        projectsCache = data.projects || [];
+        teamsCache = data.teams || [];
+        window.__csrfToken = data.csrf_token || window.__csrfToken || '';
+        if (currentUser) {
+          const label = document.getElementById('team-current-user');
+          if (label) label.textContent = `${currentUser.display_name || currentUser.username} · @${currentUser.username} · ${currentUser.role}`;
+          const role = document.getElementById('team-current-role');
+          if (role) role.textContent = currentUser.role;
+        }
+        renderProjectSwitcher();
+      } catch (e) {
+        // local single-user mode may not expose /api/auth/me details
+      }
+    }
+
+    function renderProjectSwitcher() {
+      const select = document.getElementById('project-select');
+      if (!select) return;
+      const available = projectsCache.filter(p => p.status !== 'archived');
+      if (!available.length) {
+        select.innerHTML = '<option value="">默认项目</option>';
+        select.disabled = true;
+        return;
+      }
+      if (!currentProjectId || !available.some(p => p.id === currentProjectId)) {
+        currentProjectId = available[0].id;
+        localStorage.setItem('omni_project_id', currentProjectId);
+      }
+      select.disabled = false;
+      select.innerHTML = available.map(p =>
+        `<option value="${escapeHtml(p.id)}" ${p.id === currentProjectId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+      ).join('');
+    }
+
+    function switchProject(projectId) {
+      if (!projectId || projectId === currentProjectId) return;
+      currentProjectId = projectId;
+      localStorage.setItem('omni_project_id', projectId);
+      window.location.reload();
+    }
+
+    async function logout() {
+      try {
+        await fetch('/api/auth/logout', {method: 'POST'});
+      } catch (e) {}
+      localStorage.removeItem('omni_api_token');
+      localStorage.removeItem('omni_project_id');
+      window.location.reload();
     }
 
     let currentSessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
@@ -906,7 +1144,7 @@
     }
 
     function switchTab(tab) {
-      ['chat', 'skills', 'mcp', 'audit', 'schedules', 'workspace', 'memory'].forEach(t => {
+      ['chat', 'skills', 'mcp', 'audit', 'schedules', 'workspace', 'memory', 'team'].forEach(t => {
         const el = document.getElementById(`tab-${t}`);
         const btn = document.getElementById(`nav-${t}`);
         if (t === tab) {
@@ -923,6 +1161,7 @@
         loadMemories();
         loadKnowledge();
       }
+      if (tab === 'team') loadTeamData();
       lucide.createIcons();
     }
 
@@ -2119,6 +2358,415 @@
         lucide.createIcons();
       } catch (e) {
         console.error(e);
+      }
+    }
+
+    async function apiJson(url, options = {}) {
+      const res = await fetch(url, options);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `请求失败 (${res.status})`);
+      return data;
+    }
+
+    async function loadTeamData() {
+      try {
+        const me = await apiJson('/api/auth/me');
+        currentUser = me.user || currentUser;
+        projectsCache = me.projects || [];
+        teamsCache = me.teams || [];
+        if (currentUser) {
+          const label = document.getElementById('team-current-user');
+          if (label) label.textContent = `${currentUser.display_name || currentUser.username} · @${currentUser.username} · ${currentUser.role}`;
+          const role = document.getElementById('team-current-role');
+          if (role) role.textContent = currentUser.role;
+        }
+        renderProjectSwitcher();
+        renderTeamProjects();
+        renderTeamList();
+        renderTeamSelector();
+        tokensCache = await apiJson('/api/tokens');
+        renderTokens();
+        if (currentUser && currentUser.role === 'admin') {
+          document.getElementById('team-users-section').classList.remove('hidden');
+          usersCache = await apiJson('/api/users');
+          renderUsers();
+        } else {
+          document.getElementById('team-users-section').classList.add('hidden');
+        }
+      } catch (e) {
+        toast(e.message || '加载团队数据失败', 'error');
+      }
+    }
+
+    function renderTeamSelector() {
+      const select = document.getElementById('team-project-team');
+      if (!select) return;
+      select.innerHTML = teamsCache.map(t =>
+        `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)}</option>`
+      ).join('');
+      select.disabled = !teamsCache.length;
+    }
+
+    function renderTeamProjects() {
+      const container = document.getElementById('team-projects');
+      const count = document.getElementById('project-count');
+      if (!container) return;
+      if (count) count.textContent = `${projectsCache.length} 个项目`;
+      if (!projectsCache.length) {
+        container.innerHTML = '<div class="text-xs text-[#7A8C87] py-3">暂无项目</div>';
+        return;
+      }
+      container.innerHTML = projectsCache.map(p => `
+        <div class="border border-[#E3ECE9] rounded-xl p-3 bg-[#FBFDFC]">
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <div class="text-xs font-semibold text-[#15201D] truncate">${escapeHtml(p.name)}</div>
+              <div class="text-[10px] text-[#7A8C87] mt-0.5 truncate">${escapeHtml(p.team_name || '')} · ${escapeHtml(p.status || 'active')}</div>
+            </div>
+            <span class="text-[10px] font-mono text-[#7A8C87]">${p.session_count || 0} 会话</span>
+          </div>
+          <p class="text-[10px] text-[#7A8C87] mt-1 line-clamp-2">${escapeHtml(p.description || '暂无说明')}</p>
+          <div class="flex items-center gap-1.5 mt-2">
+            ${p.id === currentProjectId ? '<span class="text-[10px] text-[#267F68] font-semibold">当前项目</span>' : `<button onclick="switchProject('${escapeHtml(p.id)}')" class="text-[10px] text-[#267F68] hover:underline">切换</button>`}
+            <button onclick="renameProject('${escapeHtml(p.id)}', '${escapeHtml(p.name)}')" class="text-[10px] text-[#7A8C87] hover:text-[#15201D]">重命名</button>
+            ${p.id !== 'proj_default' && p.status !== 'archived' ? `<button onclick="archiveProject('${escapeHtml(p.id)}')" class="text-[10px] text-[#B4544E] hover:underline">归档</button>` : ''}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function createProject() {
+      const name = document.getElementById('team-project-name').value.trim();
+      const description = document.getElementById('team-project-desc').value.trim();
+      const team_id = document.getElementById('team-project-team').value;
+      if (!name) {
+        toast('请输入项目名称', 'error');
+        return;
+      }
+      try {
+        const project = await apiJson('/api/projects', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name, description, team_id}),
+        });
+        document.getElementById('team-project-name').value = '';
+        document.getElementById('team-project-desc').value = '';
+        toast('项目已创建', 'success');
+        currentProjectId = project.id;
+        localStorage.setItem('omni_project_id', project.id);
+        await loadTeamData();
+        renderProjectSwitcher();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    async function renameProject(id, currentName) {
+      const name = prompt('新的项目名称', currentName);
+      if (!name || name.trim() === currentName) return;
+      try {
+        await apiJson(`/api/projects/${id}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name: name.trim()}),
+        });
+        toast('项目已重命名', 'success');
+        await loadTeamData();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    async function archiveProject(id) {
+      if (!confirm('归档后项目将从切换列表隐藏，确认继续？')) return;
+      try {
+        await apiJson(`/api/projects/${id}`, {method: 'DELETE'});
+        toast('项目已归档', 'success');
+        await loadTeamData();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    function renderTeamList() {
+      const container = document.getElementById('team-list');
+      const count = document.getElementById('team-count');
+      const createBox = document.getElementById('team-admin-create');
+      if (!container) return;
+      if (count) count.textContent = `${teamsCache.length} 个团队`;
+      if (createBox) createBox.classList.toggle('hidden', !currentUser || currentUser.role !== 'admin');
+      if (!teamsCache.length) {
+        container.innerHTML = '<div class="text-xs text-[#7A8C87] py-3">暂无团队</div>';
+        return;
+      }
+      container.innerHTML = teamsCache.map(t => `
+        <div class="border border-[#E3ECE9] rounded-xl p-3">
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <div class="text-xs font-semibold text-[#15201D] truncate">${escapeHtml(t.name)}</div>
+              <div class="text-[10px] text-[#7A8C87] mt-0.5">${escapeHtml(t.role || 'member')} · ${escapeHtml(t.description || '')}</div>
+            </div>
+            <button onclick="toggleTeamMembers('${escapeHtml(t.id)}')" class="text-[10px] text-[#267F68] hover:underline">成员</button>
+          </div>
+          <div id="team-members-${escapeHtml(t.id)}" class="hidden mt-3 border-t border-[#F0F4F2] pt-2 space-y-2"></div>
+        </div>
+      `).join('');
+    }
+
+    async function toggleTeamMembers(teamId) {
+      const box = document.getElementById(`team-members-${teamId}`);
+      if (!box) return;
+      if (!box.classList.contains('hidden')) {
+        box.classList.add('hidden');
+        return;
+      }
+      box.classList.remove('hidden');
+      box.innerHTML = '<div class="text-[10px] text-[#7A8C87]">加载中…</div>';
+      try {
+        const members = await apiJson(`/api/teams/${teamId}/members`);
+        const canManage = currentUser && currentUser.role === 'admin';
+        box.innerHTML = `
+          <div class="space-y-1.5">
+            ${members.map(m => `
+              <div class="flex items-center justify-between gap-2 text-[11px]">
+                <div class="min-w-0">
+                  <span class="font-mono text-[#15201D]">${escapeHtml(m.display_name || m.username || m.user_id)}</span>
+                  <span class="text-[10px] text-[#7A8C87]"> @${escapeHtml(m.username || m.user_id)}</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <span class="text-[10px] text-[#7A8C87]">${escapeHtml(m.role)}</span>
+                  ${canManage ? `<button onclick="removeTeamMember('${escapeHtml(teamId)}', '${escapeHtml(m.user_id)}')" class="text-[10px] text-[#B4544E]">移除</button>` : ''}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          ${canManage ? `
+          <div class="flex items-center gap-1.5 pt-2 border-t border-[#F0F4F2]">
+            <select id="member-user-${escapeHtml(teamId)}" class="flex-1 bg-[#F5F8F7] border border-[#E3ECE9] rounded-lg px-2 py-1 text-[10px]">
+              ${usersCache.map(u => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.display_name || u.username)}</option>`).join('')}
+            </select>
+            <select id="member-role-${escapeHtml(teamId)}" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-lg px-2 py-1 text-[10px]">
+              <option value="member">成员</option>
+              <option value="admin">管理员</option>
+            </select>
+            <button onclick="addTeamMember('${escapeHtml(teamId)}')" class="text-[10px] text-[#267F68] font-semibold">添加</button>
+          </div>` : ''}
+        `;
+      } catch (e) {
+        box.innerHTML = `<div class="text-[10px] text-[#B4544E]">${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    async function createTeam() {
+      const name = document.getElementById('team-new-name').value.trim();
+      const description = document.getElementById('team-new-desc').value.trim();
+      if (!name) {
+        toast('请输入团队名称', 'error');
+        return;
+      }
+      try {
+        await apiJson('/api/teams', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name, description}),
+        });
+        document.getElementById('team-new-name').value = '';
+        document.getElementById('team-new-desc').value = '';
+        toast('团队已创建', 'success');
+        await loadTeamData();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    async function addTeamMember(teamId) {
+      const userId = document.getElementById(`member-user-${teamId}`).value;
+      const role = document.getElementById(`member-role-${teamId}`).value;
+      try {
+        await apiJson(`/api/teams/${teamId}/members`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({user_id: userId, role}),
+        });
+        toast('成员已添加', 'success');
+        toggleTeamMembers(teamId);
+        await new Promise(r => setTimeout(r, 80));
+        toggleTeamMembers(teamId);
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    async function removeTeamMember(teamId, userId) {
+      if (!confirm('确认移除该团队成员？')) return;
+      try {
+        await apiJson(`/api/teams/${teamId}/members/${userId}`, {method: 'DELETE'});
+        toast('成员已移除', 'success');
+        toggleTeamMembers(teamId);
+        await new Promise(r => setTimeout(r, 80));
+        toggleTeamMembers(teamId);
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    function renderUsers() {
+      const container = document.getElementById('user-list');
+      const count = document.getElementById('user-count');
+      if (!container) return;
+      if (count) count.textContent = `${usersCache.length} 个用户`;
+      if (!usersCache.length) {
+        container.innerHTML = '<div class="text-xs text-[#7A8C87] py-3">暂无用户</div>';
+        return;
+      }
+      container.innerHTML = usersCache.map(u => `
+        <div class="flex items-center justify-between gap-2 border border-[#E3ECE9] rounded-xl px-3 py-2">
+          <div class="min-w-0">
+            <div class="text-xs font-semibold text-[#15201D] truncate">${escapeHtml(u.display_name || u.username)} <span class="font-mono text-[10px] text-[#7A8C87]">@${escapeHtml(u.username)}</span></div>
+            <div class="text-[10px] text-[#7A8C87]">${escapeHtml(u.email || '')} · ${escapeHtml(u.status)}</div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <select onchange="updateUserRole('${escapeHtml(u.id)}', this.value)" class="bg-[#F5F8F7] border border-[#E3ECE9] rounded-lg px-2 py-1 text-[10px]">
+              <option value="member" ${u.role === 'member' ? 'selected' : ''}>成员</option>
+              <option value="viewer" ${u.role === 'viewer' ? 'selected' : ''}>只读</option>
+              <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>管理员</option>
+            </select>
+            <button onclick="toggleUserStatus('${escapeHtml(u.id)}', '${escapeHtml(u.status)}')" class="text-[10px] ${u.status === 'active' ? 'text-[#B4544E]' : 'text-[#267F68]'}">${u.status === 'active' ? '禁用' : '启用'}</button>
+            <button onclick="resetUserPassword('${escapeHtml(u.id)}')" class="text-[10px] text-[#7A8C87]">重置密码</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function createUser() {
+      const username = document.getElementById('user-new-username').value.trim();
+      const display_name = document.getElementById('user-new-display').value.trim();
+      const password = document.getElementById('user-new-password').value;
+      const role = document.getElementById('user-new-role').value;
+      if (!username || !password) {
+        toast('请输入用户名和初始密码', 'error');
+        return;
+      }
+      try {
+        await apiJson('/api/users', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({username, password, display_name, role}),
+        });
+        document.getElementById('user-new-username').value = '';
+        document.getElementById('user-new-display').value = '';
+        document.getElementById('user-new-password').value = '';
+        toast('用户已创建', 'success');
+        await loadTeamData();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    async function updateUserRole(userId, role) {
+      try {
+        await apiJson(`/api/users/${userId}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({role}),
+        });
+        toast('角色已更新', 'success');
+        await loadTeamData();
+      } catch (e) {
+        toast(e.message, 'error');
+        await loadTeamData();
+      }
+    }
+
+    async function toggleUserStatus(userId, status) {
+      const next = status === 'active' ? 'disabled' : 'active';
+      try {
+        await apiJson(`/api/users/${userId}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({status: next}),
+        });
+        toast('用户状态已更新', 'success');
+        await loadTeamData();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    async function resetUserPassword(userId) {
+      const password = prompt('输入新密码（至少 8 位）');
+      if (!password) return;
+      try {
+        await apiJson(`/api/users/${userId}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({password}),
+        });
+        toast('密码已重置', 'success');
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    async function createToken() {
+      const name = document.getElementById('token-new-name').value.trim();
+      const rawScopes = document.getElementById('token-new-scopes').value.trim();
+      if (!name) {
+        toast('请输入 Token 名称', 'error');
+        return;
+      }
+      const scopes = rawScopes ? rawScopes.split(',').map(s => s.trim()).filter(Boolean) : ['*'];
+      try {
+        const data = await apiJson('/api/tokens', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name, scopes, expires_days: 90}),
+        });
+        document.getElementById('token-new-name').value = '';
+        document.getElementById('token-new-scopes').value = '';
+        const reveal = document.getElementById('token-reveal');
+        reveal.classList.remove('hidden');
+        reveal.innerHTML = `
+          <div class="text-[10px] text-[#267F68] font-semibold mb-1">Token 已创建，仅显示一次</div>
+          <div class="flex items-center gap-2">
+            <code class="flex-1 text-[10px] font-mono break-all text-[#15201D]">${escapeHtml(data.token)}</code>
+            <button onclick="navigator.clipboard.writeText('${escapeHtml(data.token)}').then(() => toast('已复制', 'success'))" class="text-[10px] text-[#267F68] font-semibold">复制</button>
+          </div>
+        `;
+        await loadTeamData();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    }
+
+    function renderTokens() {
+      const container = document.getElementById('token-list');
+      const count = document.getElementById('token-count');
+      if (!container) return;
+      if (count) count.textContent = `${tokensCache.length} 个 Token`;
+      if (!tokensCache.length) {
+        container.innerHTML = '<div class="text-xs text-[#7A8C87] py-3">暂无 Token</div>';
+        return;
+      }
+      container.innerHTML = tokensCache.map(t => `
+        <div class="flex items-center justify-between gap-2 border border-[#E3ECE9] rounded-xl px-3 py-2">
+          <div class="min-w-0">
+            <div class="text-xs font-semibold text-[#15201D]">${escapeHtml(t.name)} <span class="font-mono text-[10px] text-[#7A8C87]">${escapeHtml(t.token_prefix || '')}…</span></div>
+            <div class="text-[10px] text-[#7A8C87]">${escapeHtml((t.scopes || []).join(', '))} · 最近使用 ${escapeHtml(t.last_used_at || '从未')}</div>
+          </div>
+          <button onclick="revokeToken('${escapeHtml(t.id)}')" class="text-[10px] text-[#B4544E]">撤销</button>
+        </div>
+      `).join('');
+    }
+
+    async function revokeToken(tokenId) {
+      if (!confirm('确认撤销该 Token？')) return;
+      try {
+        await apiJson(`/api/tokens/${tokenId}`, {method: 'DELETE'});
+        toast('Token 已撤销', 'success');
+        await loadTeamData();
+      } catch (e) {
+        toast(e.message, 'error');
       }
     }
 

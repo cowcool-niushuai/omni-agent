@@ -35,6 +35,7 @@ import permission
 import prompts
 import tools
 from model_manager import model_manager
+from omni_agent import tenancy
 from omni_agent.config import get_settings
 from omni_agent.runtime.context import maybe_compact
 from omni_agent.security.limits import truncate_text
@@ -61,6 +62,12 @@ class AgentState(TypedDict, total=False):
     turn_start_thoughts: int
     turn_start_records: int
     last_saved_turn: str | None
+    user_id: str
+    project_id: str
+    team_id: str
+    role: str
+    team_role: str
+    scopes: list[str]
 
 
 ClientFactory = Callable[[], tuple[Any, str]]
@@ -186,7 +193,30 @@ class AgentRuntime:
     # ------------------------------------------------------------------
     # graph nodes
     # ------------------------------------------------------------------
+    def _bind_tenant(self, state: AgentState) -> tenancy.TenantContext:
+        """Bind the request tenant for this graph node.
+
+        LangGraph may resume a turn in a different task, so every node derives
+        the tenant from durable state instead of relying on request context.
+        """
+        base = tenancy.get_context()
+        project_id = str(state.get("project_id") or base.project_id)
+        context = tenancy.TenantContext(
+            user_id=str(state.get("user_id") or base.user_id),
+            project_id=project_id,
+            team_id=str(state.get("team_id") or base.team_id),
+            workspace=tenancy.project_workspace(project_id),
+            role=str(state.get("role") or base.role),
+            team_role=str(state.get("team_role") or base.team_role),
+            scopes=frozenset(state.get("scopes") or base.scopes),
+            auth_type=base.auth_type,
+            csrf_token=base.csrf_token,
+        )
+        tenancy.set_context(context)
+        return context
+
     async def _agent_node(self, state: AgentState) -> dict[str, Any]:
+        self._bind_tenant(state)
         writer = _writer()
         iteration = int(state.get("iteration", 0)) + 1
         max_iterations = int(state.get("max_iterations") or self._settings.max_iterations)
@@ -335,6 +365,7 @@ class AgentRuntime:
         return "tools"
 
     async def _approval_node(self, state: AgentState) -> dict[str, Any]:
+        self._bind_tenant(state)
         session_id = str(state.get("session_id", ""))
         calls = state.get("pending_tool_calls") or []
         ask_requests: list[dict[str, Any]] = []
@@ -390,6 +421,7 @@ class AgentRuntime:
         return {"approval_action": action}
 
     async def _tools_node(self, state: AgentState) -> dict[str, Any]:
+        self._bind_tenant(state)
         session_id = str(state.get("session_id", ""))
         turn_id = str(state.get("turn_id", ""))
         action = str(state.get("approval_action") or "REJECT")
@@ -728,12 +760,14 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         max_iterations: int = 5,
         *,
         approval_mode: str = "human",
+        tenant: tenancy.TenantContext | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         async for event in self.run_stream(
             session_id,
             user_message,
             max_iterations=max_iterations,
             approval_mode=approval_mode,
+            tenant=tenant,
         ):
             yield event
 
@@ -744,6 +778,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         *,
         max_iterations: int | None = None,
         approval_mode: str = "human",
+        tenant: tenancy.TenantContext | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         if session_id in self._active_sessions:
             yield {
@@ -758,6 +793,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
                 user_message,
                 max_iterations=max_iterations,
                 approval_mode=approval_mode,
+                tenant=tenant,
             ):
                 yield event
         finally:
@@ -770,8 +806,12 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         *,
         max_iterations: int | None = None,
         approval_mode: str = "human",
+        tenant: tenancy.TenantContext | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        database.ensure_session(session_id)
+        context = tenant or tenancy.get_context()
+        database.ensure_session(
+            session_id, owner_id=context.user_id, project_id=context.project_id
+        )
         database.save_message(session_id, "user", user_message)
         database.maybe_auto_title(session_id, user_message)
 
@@ -828,6 +868,12 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
                 "turn_id": turn_id,
                 "turn_start_thoughts": turn_start_thoughts,
                 "turn_start_records": turn_start_records,
+                "user_id": context.user_id,
+                "project_id": context.project_id,
+                "team_id": context.team_id,
+                "role": context.role,
+                "team_role": context.team_role,
+                "scopes": sorted(context.scopes),
             }
         )
 
