@@ -44,6 +44,7 @@ READ_ONLY_TOOLS = {
     "rag_search",
     "memory_search",
     "read_skill_doc",
+    "update_plan",
     "mcp_db_schema",
     "mcp_db_stats",
 }

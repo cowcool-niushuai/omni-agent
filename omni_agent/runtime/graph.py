@@ -2,13 +2,15 @@
 
 The graph is deliberately explicit (no ``create_agent`` black box):
 
-    START -> agent -> (approval?) -> tools -> agent -> ... -> END
+    START -> agent -> (approval?) -> tools -> agent -> ... -> verify -> END
 
 * ``agent`` streams real model tokens and emits custom events.
 * ``approval`` uses ``interrupt()`` so a human decision is durable and
   resumable via ``Command(resume=...)``.
-* ``tools`` executes independent calls concurrently and applies the
-  permission policy before every call.
+* ``tools`` validates contracts, executes independent calls concurrently and
+  applies the permission policy before every call.
+* ``verify`` refuses to finish while the durable plan has open steps or
+  completed steps without evidence, and sends the agent back to repair.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ import tools
 from model_manager import model_manager
 from omni_agent import tenancy
 from omni_agent.config import get_settings
+from omni_agent.runtime import contracts, planning
 from omni_agent.runtime.context import maybe_compact
 from omni_agent.security.limits import truncate_text
 from omni_agent.security.sandbox import detect_backend
@@ -68,6 +71,9 @@ class AgentState(TypedDict, total=False):
     role: str
     team_role: str
     scopes: list[str]
+    plan: dict[str, Any] | None
+    verification_attempts: int
+    verification_status: str
 
 
 ClientFactory = Callable[[], tuple[Any, str]]
@@ -180,14 +186,20 @@ class AgentRuntime:
         builder.add_node("agent", self._agent_node)
         builder.add_node("approval", self._approval_node)
         builder.add_node("tools", self._tools_node)
+        builder.add_node("verify", self._verify_node)
         builder.add_edge(START, "agent")
         builder.add_conditional_edges(
             "agent",
             self._route_after_agent,
-            {"approval": "approval", "tools": "tools", "end": END},
+            {"approval": "approval", "tools": "tools", "verify": "verify", "end": END},
         )
         builder.add_edge("approval", "tools")
         builder.add_edge("tools", "agent")
+        builder.add_conditional_edges(
+            "verify",
+            self._route_after_verify,
+            {"agent": "agent", "end": END},
+        )
         return builder.compile(checkpointer=self._checkpointer)
 
     # ------------------------------------------------------------------
@@ -267,6 +279,7 @@ class AgentRuntime:
                 "content": prompts.build_system_prompt(
                     current_query,
                     str(state.get("approval_mode") or "human"),
+                    state.get("plan"),
                 ),
             }
         ]
@@ -354,7 +367,7 @@ class AgentRuntime:
     def _route_after_agent(self, state: AgentState) -> str:
         calls = state.get("pending_tool_calls") or []
         if not calls:
-            return "end"
+            return "verify"
         auto_reject = str(state.get("approval_mode") or "human") == "auto_reject"
         for call in calls:
             risk, _ = permission.classify_permission(
@@ -420,6 +433,71 @@ class AgentRuntime:
             permission.reject_requests(request_ids)
         return {"approval_action": action}
 
+    def _route_after_verify(self, state: AgentState) -> str:
+        if str(state.get("verification_status") or "") == "repair":
+            return "agent"
+        return "end"
+
+    async def _verify_node(self, state: AgentState) -> dict[str, Any]:
+        """Evidence gate: no unfinished step and no unsupported completion."""
+        plan = state.get("plan")
+        writer = _writer()
+        if not plan:
+            _emit(writer, {"type": "verification", "status": "skipped", "reason": "本轮未创建计划"})
+            return {"verification_status": "skipped"}
+
+        issue = planning.verification_issue(plan)
+        if not issue:
+            _emit(
+                writer,
+                {
+                    "type": "verification",
+                    "status": "passed",
+                    "reason": "计划步骤与验证证据完整",
+                },
+            )
+            return {"verification_status": "passed"}
+
+        attempts = int(state.get("verification_attempts", 0))
+        max_retries = max(0, int(self._settings.verification_max_retries))
+        if attempts < max_retries:
+            _emit(
+                writer,
+                {
+                    "type": "verification",
+                    "status": "repair",
+                    "reason": issue,
+                    "attempt": attempts + 1,
+                },
+            )
+            _emit(writer, {"type": "answer_discard"})
+            return {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "自检未通过，不能直接结束："
+                            f"{issue}\n请继续执行、补全验证证据并更新计划；"
+                            "只有全部步骤完成且每步都有 evidence 时才能给出最终答复。"
+                        ),
+                    }
+                ],
+                "final_answer": None,
+                "verification_attempts": attempts + 1,
+                "verification_status": "repair",
+            }
+
+        _emit(
+            writer,
+            {
+                "type": "verification",
+                "status": "failed",
+                "reason": issue,
+                "attempt": attempts,
+            },
+        )
+        return {"verification_status": "failed"}
+
     async def _tools_node(self, state: AgentState) -> dict[str, Any]:
         self._bind_tenant(state)
         session_id = str(state.get("session_id", ""))
@@ -435,15 +513,28 @@ class AgentRuntime:
         async def run_one(call: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
             async with semaphore:
                 name = str(call.get("name", ""))
-                arguments = call.get("arguments") or {}
+                raw_arguments = call.get("arguments") or {}
                 tool_call_id = str(call.get("id", ""))
+                validation_error: str | None = None
+                try:
+                    arguments, _ = contracts.validate_tool_call(name, raw_arguments)
+                except contracts.ToolContractError as exc:
+                    arguments = raw_arguments
+                    validation_error = contracts.error_result(name, exc.detail)
                 risk, reason = permission.classify_permission(name, arguments)
                 started = time.perf_counter()
                 output = ""
                 status = "OK"
                 error: str | None = None
+                error_code: str | None = None
 
-                if risk == permission.PermissionRisk.DENY:
+                if validation_error:
+                    output = validation_error
+                    status = "INVALID"
+                    decision = "AUTO"
+                    error = validation_error
+                    error_code = "INVALID_ARGUMENTS"
+                elif risk == permission.PermissionRisk.DENY:
                     output = f"[严重越权拒绝] 系统已阻断该操作：{reason}"
                     status = "BLOCKED"
                     decision = "DENIED"
@@ -488,6 +579,17 @@ class AgentRuntime:
                         status = "TIMEOUT"
                         error = output
 
+                outcome = contracts.classify_output(name, output)
+                if error_code is None:
+                    error_code = outcome.error_code
+                if status == "OK" and not outcome.ok:
+                    status = (
+                        "BLOCKED"
+                        if outcome.error_code == "BLOCKED"
+                        else "ERROR"
+                    )
+                    error = output[:500]
+
                 output = truncate_text(output, settings.tool_max_output_chars)
                 duration_ms = int((time.perf_counter() - started) * 1000)
                 exit_code_match = re.search(r"\[Exit code:\s*(-?\d+)\]", output)
@@ -510,6 +612,7 @@ class AgentRuntime:
                         output_chars=len(output),
                         output_preview=output,
                         error=error,
+                        error_code=error_code,
                     )
 
                 _emit(
@@ -537,12 +640,20 @@ class AgentRuntime:
         results = await asyncio.gather(*(run_one(call) for call in calls))
         messages = [item[0] for item in results]
         records = [item[1] for item in results]
-        return {
+        updates: dict[str, Any] = {
             "messages": messages,
             "pending_tool_calls": [],
             "approval_action": None,
             "tool_calls_record": records,
         }
+        for record in records:
+            if str(record.get("name")) != "update_plan":
+                continue
+            plan = planning.normalize_plan(record.get("arguments") or {})
+            updates["plan"] = plan
+            _emit(writer, planning.plan_event(plan))
+            break
+        return updates
 
     # ------------------------------------------------------------------
     # model + tools
@@ -664,7 +775,24 @@ class AgentRuntime:
                     },
                 )
                 return output
-            return await asyncio.to_thread(tools.dispatch_tool, name, arguments)
+            attempts = (
+                max(1, int(self._settings.tool_retry_attempts))
+                if contracts.is_idempotent(name, arguments)
+                else 1
+            )
+            for attempt in range(attempts):
+                try:
+                    return await asyncio.to_thread(
+                        tools.dispatch_tool, name, arguments
+                    )
+                except Exception:
+                    if attempt + 1 >= attempts:
+                        raise
+                    await asyncio.sleep(
+                        max(0.0, self._settings.tool_retry_backoff_seconds)
+                        * (2**attempt)
+                    )
+            return "[工具错误] 工具重试耗尽。"
         except Exception as exc:
             log.exception("tool_execution_failed", tool=name)
             return f"工具执行发生异常: {exc}"
@@ -749,6 +877,17 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
             final_report = f"子智能体【{role}】已执行相关操作并产出中间结果。"
         database.update_subagent_task(sub_id, "COMPLETED", final_report)
         return f"【子智能体 ({role}) 汇报】\n{final_report}"
+
+    async def get_plan(self, session_id: str) -> dict[str, Any]:
+        """Return the durable plan for a session, if any."""
+        graph = await self._get_graph()
+        state = await graph.aget_state({"configurable": {"thread_id": session_id}})
+        values = state.values or {}
+        return {
+            "plan": values.get("plan"),
+            "verification_status": values.get("verification_status") or "",
+            "verification_attempts": int(values.get("verification_attempts", 0)),
+        }
 
     # ------------------------------------------------------------------
     # public streaming API
@@ -868,6 +1007,9 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
                 "turn_id": turn_id,
                 "turn_start_thoughts": turn_start_thoughts,
                 "turn_start_records": turn_start_records,
+                "plan": None,
+                "verification_attempts": 0,
+                "verification_status": "",
                 "user_id": context.user_id,
                 "project_id": context.project_id,
                 "team_id": context.team_id,

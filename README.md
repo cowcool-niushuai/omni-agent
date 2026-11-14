@@ -5,7 +5,7 @@
 
 OmniAgent 是一个**可本地单机运行、也可切换为团队模式**的通用智能体应用：它不只回答问题，还能在工作区里读写文件、执行命令、运行 Python、调用 MCP 工具，并在高危操作前暂停，等待你批准后继续执行。
 
-项目当前已完成 **Phase 3（能力扩展）**、**Phase 4.0 生产化基础**、**Phase 4.1 团队版身份与项目隔离（M2）**，以及 **Phase 4.2 Electron 桌面客户端**：Phase 2 的沙箱、命令策略、SSRF 与审计，Phase 3 的本地 Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配与无头浏览器自动化，以及会话生命周期、可选 API Token、用户/团队/项目、RBAC、项目级工作区、审计导出和原生桌面窗口均已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
+项目当前已完成 **Phase 3（能力扩展）**、**Phase 4.0 生产化基础**、**Phase 4.1 团队版身份与项目隔离（M2）**、**Phase 4.2 Electron 桌面客户端**，以及 **Phase 4.3 可靠性增强**：Phase 2 的沙箱、命令策略、SSRF 与审计，Phase 3 的本地 Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配与无头浏览器自动化，以及会话生命周期、可选 API Token、用户/团队/项目、RBAC、项目级工作区、审计导出、原生桌面窗口、持久任务计划、工具契约、混合检索与证据验证器均已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
 
 ---
 
@@ -325,6 +325,42 @@ make desktop-dist    # 生成 Linux AppImage + deb
 
 ---
 
+### 17. 可靠性增强：计划、工具契约、混合检索与验证器
+
+这一阶段解决“会调用工具”与“能可靠完成任务”之间的差距：
+
+- **持久任务计划**
+  - 新增 `update_plan(goal, done_when, steps)` 工具
+  - 每个步骤包含 `status`、`acceptance` 和可核验的 `evidence`
+  - 计划写入 LangGraph checkpoint，刷新页面、审批恢复后仍然存在
+  - Web 控制台顶部展示实时计划面板（完成数、状态、验收条件、证据）
+- **工具契约层**
+  - 所有原生工具使用 Pydantic 参数模型校验；未知字段、缺参、类型错误在进入权限和沙箱前直接拒绝
+  - MCP 工具保留官方 JSON Schema 校验
+  - 统一错误分类：`INVALID_ARGUMENTS`、`TIMEOUT`、`BLOCKED`、`TOOL_ERROR`、`UNKNOWN_TOOL`
+  - 仅对只读且幂等的工具自动重试，避免重复写文件或重复执行命令
+  - 审计表新增 `error_code`，便于统计工具失败原因
+- **混合检索与结构化摘要**
+  - BM25 + 本地 hashed embedding 混合打分，不依赖外部 embedding API
+  - 中文单字/双字切分，标题、标签、记忆 key 与重要度加权
+  - 上下文压缩改为结构化摘要：用户目标、决策、文件、证据、错误、未完成事项、下一步
+- **Actor + Verifier 自检**
+  - 模型尝试结束时，验证器检查计划：存在未完成步骤，或 completed 步骤没有 evidence，则打回继续执行
+  - 最多 `VERIFICATION_MAX_RETRIES` 次修复，避免无限循环
+  - Web UI 显示“执行中 / 待补充证据 / 通过 / 未通过”
+  - 原则：**没有证据，不算完成**
+- **可观测性**
+  - SSE 新增 `plan_update` 与 `verification` 事件
+  - 审计记录包含工具契约错误码、决策、状态、耗时和输出摘要
+
+相关 API：
+
+```text
+GET /api/sessions/{session_id}/plan   # 当前持久计划与验证状态
+```
+
+当前实现使用本地 hashed embedding，不是语义 embedding 模型；它适合离线和小型知识库。需要更强语义召回时，可在 `retrieval.py` 中替换为可配置的 embedding provider，接口无需变化。
+
 ## 架构
 
 ```text
@@ -342,7 +378,8 @@ make desktop-dist    # 生成 Linux AppImage + deb
                │
 ┌──────────────▼────────────────────────────┐
 │  AgentRuntime (LangGraph StateGraph)      │
-│  agent -> approval -> tools -> agent      │
+│  agent -> approval/tools -> agent         │
+│  agent -> verify(evidence) -> agent/END   │
 │  AsyncSqliteSaver checkpoint              │
 └──────┬───────────────┬────────────────────┘
        │               │
@@ -372,12 +409,14 @@ omni-agent/
 │   │   └── limits.py          # 输出截断
 │   └── runtime/
 │       ├── graph.py           # LangGraph StateGraph 与 AgentRuntime
-│       └── context.py         # token 计数与上下文压缩
+│       ├── contracts.py       # 工具参数契约、错误分类与重试策略
+│       ├── planning.py        # 持久计划、计划事件与验证规则
+│       └── context.py         # token 计数与结构化上下文压缩
 ├── permission.py              # 风险分类、审批请求、批量状态更新
 ├── audit.py                   # 工具执行审计（脱敏、统计）
 ├── tools.py                   # 原生工具与 MCP 工具分发
 ├── prompts.py                 # 动态系统提示词（稳定+相关记忆注入）
-├── retrieval.py               # BM25 + 中英文混合分词（记忆/知识库）
+├── retrieval.py               # BM25 + 本地向量混合检索（记忆/知识库）
 ├── scheduler.py               # 定时任务调度器（无人值守 auto_reject）
 ├── browser.py                 # Playwright 无头浏览器（SSRF/审批/截图沙箱）
 ├── database.py                # SQLite 持久化（含 tool_audit / scheduled_tasks）
@@ -494,6 +533,11 @@ make check      # 全部检查
 | `ALLOW_PRIVATE_NETWORK` | 是否允许抓取内网地址 | `false` |
 | `MCP_REQUEST_TIMEOUT_SECONDS` | MCP 请求超时 | `15` |
 | `AUDIT_ENABLED` | 是否写入工具审计 | `true` |
+| `TOOL_RETRY_ATTEMPTS` | 幂等只读工具最大尝试次数 | `2` |
+| `TOOL_RETRY_BACKOFF_SECONDS` | 工具重试退避基数 | `0.3` |
+| `VERIFICATION_MAX_RETRIES` | 计划验证未通过时的最大修复轮数 | `2` |
+| `RETRIEVAL_HYBRID_WEIGHT` | 混合检索向量权重（0-1） | `0.7` |
+| `RETRIEVAL_EMBEDDING_DIM` | 本地 hashed embedding 维度 | `256` |
 | `SCHEDULER_ENABLED` | 是否启动定时任务调度器 | `true` |
 | `SCHEDULER_POLL_SECONDS` | 调度器轮询间隔 | `15` |
 | `SCHEDULER_TASK_TIMEOUT_SECONDS` | 单次定时任务超时 | `600` |
@@ -536,11 +580,11 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：121 passed
+- `pytest`：130 passed
 - `ruff`：All checks passed
-- `mypy`：Success，13 source files
+- `mypy`：Success，15 source files
 
-测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护、密码哈希、登录与 CSRF、项目隔离、跨项目访问拒绝、viewer 只读、Token 作用域、审批请求项目隔离、最后一个管理员保护。
+测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护、密码哈希、登录与 CSRF、项目隔离、跨项目访问拒绝、viewer 只读、Token 作用域、审批请求项目隔离、最后一个管理员保护、工具参数契约与非法参数拦截、工具错误分类、幂等重试策略、计划规范化与验证规则、验证器修复循环、计划 API 与 UI。
 
 ---
 
@@ -555,6 +599,7 @@ uv run mypy
 | Phase 4.0 | ✅ 完成 | 生产化基础：会话生命周期、搜索/导出、可选 API Token、系统信息、前端交互完善 |
 | Phase 4.1 | ✅ 完成 | 团队版 M2：用户/团队/项目、登录与 CSRF、RBAC、API Token 作用域、项目隔离、审计导出 |
 | Phase 4.2 | ✅ 完成 | Electron 桌面客户端：原生窗口、托盘、启动画面、后端自动拉起与日志、窗口状态记忆 |
+| Phase 4.3 | ✅ 完成 | 可靠性增强：持久计划、工具契约与幂等重试、混合检索、结构化摘要、证据验证器 |
 | Phase 4 | 🚧 进行中 | 企业级平台：内嵌后端安装包、文件/预览、可观测性、Docker/备份、插件与 SDK |
 | Phase 5 | 计划中 | 开源发布：LICENSE、文档、示例、CI Release |
 

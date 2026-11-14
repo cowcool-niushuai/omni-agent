@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+import audit
 import database
 import permission
 import prompts
@@ -205,6 +206,73 @@ async def test_rejected_approval_does_not_execute_tool(
     )
     assert resumed[-1]["type"] == "done"
     assert permission.get_request_status(tool_request_id) == "REJECTED"
+
+
+async def test_invalid_tool_arguments_are_blocked_before_execution(
+    isolated_db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = FakeClient(
+        [
+            [tool_chunk("call_bad", "bash_run", json.dumps({"bad": "x"}))],
+            [text_chunk("参数有问题")],
+        ]
+    )
+    executed: list[str] = []
+    monkeypatch.setattr(
+        tools, "dispatch_tool", lambda name, arguments: executed.append(name) or "x"
+    )
+    runtime = make_runtime(isolated_db, client)
+    try:
+        events = [event async for event in runtime.run_stream("s1", "run")]
+    finally:
+        await runtime.close()
+
+    assert executed == []
+    assert any(
+        event["type"] == "tool_result" and "[参数错误]" in event["result"]
+        for event in events
+    )
+    rows = audit.list_tool_calls(session_id="s1")
+    assert rows[0]["status"] == "INVALID"
+    assert rows[0]["error_code"] == "INVALID_ARGUMENTS"
+
+
+async def test_verifier_repairs_incomplete_plan(
+    isolated_db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan_args = {
+        "goal": "finish the task",
+        "done_when": "tests pass",
+        "steps": [
+            {"title": "write code", "status": "completed", "evidence": "app.py"},
+            {"title": "run tests", "status": "pending"},
+        ],
+    }
+    client = FakeClient(
+        [
+            [tool_chunk("call_plan", "update_plan", json.dumps(plan_args))],
+            [text_chunk("完成了")],
+            [text_chunk("仍未完成")],
+        ]
+    )
+    runtime = make_runtime(isolated_db, client)
+    monkeypatch.setattr(runtime._settings, "verification_max_retries", 1)
+    try:
+        events = [event async for event in runtime.run_stream("s1", "finish")]
+    finally:
+        await runtime.close()
+
+    assert any(
+        event["type"] == "plan_update" and event["goal"] == "finish the task"
+        for event in events
+    )
+    verification = [event for event in events if event["type"] == "verification"]
+    assert any(event["status"] == "repair" for event in verification)
+    assert any(event["status"] == "failed" for event in verification)
+    assert events[-1]["type"] == "done"
+    assert any(
+        event["type"] == "answer_discard" for event in events
+    )
 
 
 async def test_auto_reject_mode_does_not_interrupt(

@@ -263,6 +263,23 @@
           </div>
         </div>
 
+        <!-- 任务计划面板：由 update_plan 工具和验证器驱动 -->
+        <div id="plan-panel" class="max-w-2xl mx-auto hidden mb-4 bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 text-[11px] font-semibold text-[#15201D]">
+                <i data-lucide="list-checks" class="w-3.5 h-3.5 text-[#267F68]"></i>
+                任务计划
+                <span id="plan-progress" class="font-mono text-[10px] text-[#7A8C87]"></span>
+              </div>
+              <div id="plan-goal" class="text-xs font-semibold text-[#15201D] mt-1 truncate"></div>
+              <div id="plan-done-when" class="text-[10px] text-[#7A8C87] mt-0.5"></div>
+            </div>
+            <span id="plan-verify" class="text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-[#F5F8F7] text-[#7A8C87] shrink-0"></span>
+          </div>
+          <div id="plan-steps" class="mt-3 space-y-1.5"></div>
+        </div>
+
         <!-- 对话流容器 (进入对话状态后展示) -->
         <div id="chat-stream" class="max-w-2xl mx-auto space-y-6 hidden"></div>
       </div>
@@ -1406,6 +1423,7 @@
       document.getElementById('empty-state').classList.remove('hidden');
       document.getElementById('chat-stream').classList.add('hidden');
       document.getElementById('chat-input-bar').classList.add('hidden');
+      hidePlan();
     }
 
     async function initSession() {
@@ -1422,6 +1440,7 @@
       setCurrentSessionHeader(sessionId, title);
       const chatStream = document.getElementById('chat-stream');
       chatStream.innerHTML = '';
+      loadPlan(sessionId);
       try {
         const res = await fetch(`/api/sessions/${sessionId}/messages`);
         if (!res.ok) {
@@ -1441,16 +1460,40 @@
         messages.forEach(m => {
           if (m.role === 'user') {
             const bubble = document.createElement('div');
-            bubble.className = "flex justify-end";
-            bubble.innerHTML = `<div class="max-w-xl bg-[#15201D] text-[#FFFFFF] rounded-2xl px-4 py-2.5 text-xs leading-relaxed shadow-sm">${escapeHtml(m.content || '').replace(/\n/g, '<br>')}</div>`;
+            bubble.className = "flex justify-end items-start gap-2";
+            bubble.innerHTML = `<div class="max-w-[85%] bg-[#15201D] text-[#FFFFFF] rounded-2xl rounded-tr-md px-4 py-2.5 text-xs leading-relaxed shadow-sm">${escapeHtml(m.content || '').replace(/\n/g, '<br>')}</div><div class="w-7 h-7 rounded-xl bg-[#EDF3F1] text-[#267F68] flex items-center justify-center text-[11px] font-semibold shrink-0">你</div>`;
             chatStream.appendChild(bubble);
           } else if (m.role === 'assistant') {
-            const box = document.createElement('div');
-            box.className = "space-y-2 text-xs group";
+            let records = [];
+            try { records = m.tool_calls ? JSON.parse(m.tool_calls) : []; } catch (e) { records = []; }
+            const toolRows = (records || []).map(record => `
+              <details class="group text-[11px] rounded-lg px-2 py-1.5 hover:bg-[#F5F8F7]">
+                <summary class="flex items-center justify-between list-none cursor-pointer gap-2">
+                  <span class="flex items-center gap-2 min-w-0"><i data-lucide="${toolIcon(record.name)}" class="w-3.5 h-3.5 text-[#267F68] shrink-0"></i><span class="font-mono text-[11px] truncate">${escapeHtml(record.name || '')}</span><span class="text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-[#EDF7F1] text-[#267F68]">已执行</span></span>
+                  <i data-lucide="chevron-down" class="w-3 h-3 text-[#7A8C87] group-open:rotate-180 transition-transform"></i>
+                </summary>
+                <div class="mt-1.5 ml-5 text-[10px] font-mono text-[#4A5568] whitespace-pre-wrap max-h-40 overflow-y-auto bg-[#FFFFFF] border border-[#E3ECE9] rounded-lg p-2">${escapeHtml(String(record.output || ''))}</div>
+              </details>`).join('');
             const thought = m.thought
-              ? `<details class="group text-[11px] text-[#7A8C87] border border-[#E3ECE9] bg-[#FFFFFF] rounded-xl px-3 py-2"><summary class="font-medium text-[#15201D] cursor-pointer">思考过程</summary><div class="mt-2 text-[#4A5568] whitespace-pre-wrap font-mono pl-3 border-l-2 border-[#E3ECE9]">${escapeHtml(m.thought)}</div></details>`
+              ? `<details class="group text-[11px] rounded-lg px-2 py-1.5 hover:bg-[#F5F8F7]"><summary class="font-medium text-[#4A5568] flex items-center gap-1.5 cursor-pointer"><i data-lucide="compass" class="w-3.5 h-3.5 text-[#7A8C87]"></i>思考</summary><div class="mt-1.5 text-[#5B6B66] whitespace-pre-wrap font-mono text-[10px] pl-5 border-l-2 border-[#E3ECE9]">${escapeHtml(m.thought)}</div></details>`
               : '';
-            box.innerHTML = `<div class="trace-steps space-y-1.5">${thought}</div><div class="flex items-start gap-1"><div class="final-answer prose prose-neutral text-xs max-w-none text-[#15201D] leading-relaxed pt-1 flex-1"></div><button class="copy-answer opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-[#9AA9A4] hover:text-[#267F68]" title="复制回答"><i data-lucide="copy" class="w-3 h-3"></i></button></div>`;
+            const hasTrace = Boolean(thought || toolRows);
+            const trace = hasTrace
+              ? `<details class="trace-details group border border-[#E3ECE9] bg-[#FBFDFC] rounded-xl px-3 py-2"><summary class="font-medium text-[11px] text-[#4A5568] flex items-center justify-between list-none cursor-pointer"><span class="flex items-center gap-1.5"><i data-lucide="activity" class="w-3.5 h-3.5 text-[#267F68]"></i>执行过程 <span class="font-mono text-[10px] text-[#7A8C87]">${(records || []).length + (thought ? 1 : 0)} 步</span></span><i data-lucide="chevron-down" class="w-3 h-3 text-[#7A8C87] group-open:rotate-180 transition-transform"></i></summary><div class="mt-2 space-y-1.5 border-l border-[#E3ECE9] pl-2.5">${thought}${toolRows}</div></details>`
+              : '';
+            const box = document.createElement('div');
+            box.className = "assistant-turn flex items-start gap-3 text-xs group";
+            box.innerHTML = `
+              <div class="w-7 h-7 rounded-xl bg-[#15201D] text-[#59D6B3] flex items-center justify-center text-sm font-bold shrink-0 shadow-sm">Ω</div>
+              <div class="min-w-0 flex-1 space-y-2">
+                <div class="flex items-center gap-2 min-h-[18px]">
+                  <span class="text-[11px] font-semibold text-[#15201D]">OmniAgent</span>
+                  <span class="text-[10px] text-[#7A8C87]">历史记录</span>
+                  <button class="copy-answer opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-[#9AA9A4] hover:text-[#267F68] ml-auto" title="复制回答"><i data-lucide="copy" class="w-3 h-3"></i></button>
+                </div>
+                ${trace}
+                <div class="final-answer prose prose-neutral text-xs max-w-none text-[#15201D] leading-relaxed bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl px-4 py-3 shadow-sm"></div>
+              </div>`;
             box.querySelector('.final-answer').innerHTML = renderMarkdown(m.content || '');
             box.querySelector('.copy-answer').onclick = () => copyText(m.content || '');
             chatStream.appendChild(box);
@@ -1591,6 +1634,7 @@
       }
       currentSessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
       pendingPermission = false;
+      hidePlan();
       setCurrentSessionHeader(currentSessionId, '新对话');
       resetConversationView();
       loadSessions();
@@ -2018,6 +2062,98 @@
       setAssistantStatus(ctx, '执行出错', '#B4544E');
     }
 
+    function planStatusMeta(status) {
+      const map = {
+        completed: ['check-circle-2', 'text-[#267F68]', '已完成'],
+        in_progress: ['loader', 'text-[#C98B4E]', '进行中'],
+        blocked: ['alert-octagon', 'text-[#B4544E]', '受阻'],
+        pending: ['circle', 'text-[#9AA9A4]', '待执行'],
+      };
+      return map[status] || map.pending;
+    }
+
+    function renderPlan(data) {
+      const panel = document.getElementById('plan-panel');
+      if (!panel) return;
+      const plan = data && data.plan !== undefined ? data.plan : data;
+      if (!plan || !Array.isArray(plan.steps) || !plan.steps.length) {
+        panel.classList.add('hidden');
+        return;
+      }
+      panel.classList.remove('hidden');
+      const steps = plan.steps || [];
+      const done = steps.filter(s => s.status === 'completed').length;
+      document.getElementById('plan-progress').innerText = `${done}/${steps.length}`;
+      document.getElementById('plan-goal').innerText = plan.goal || '未命名任务';
+      document.getElementById('plan-done-when').innerText = plan.done_when ? `完成标准：${plan.done_when}` : '';
+      const list = document.getElementById('plan-steps');
+      list.innerHTML = steps.map((step, index) => {
+        const [icon, color, label] = planStatusMeta(step.status);
+        const evidence = step.evidence
+          ? `<div class="text-[10px] text-[#7A8C87] mt-0.5 truncate" title="${escapeHtml(step.evidence)}">证据：${escapeHtml(step.evidence)}</div>`
+          : '';
+        const acceptance = step.acceptance
+          ? `<div class="text-[9px] text-[#9AA9A4] mt-0.5 truncate">验收：${escapeHtml(step.acceptance)}</div>`
+          : '';
+        return `<div class="flex items-start gap-2 rounded-lg px-2 py-1.5 ${step.status === 'in_progress' ? 'bg-[#FFFBF6]' : ''}">
+          <i data-lucide="${icon}" class="w-3.5 h-3.5 ${color} shrink-0 mt-0.5 ${step.status === 'in_progress' ? 'animate-spin' : ''}"></i>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[11px] text-[#15201D] ${step.status === 'completed' ? 'line-through decoration-[#B8CCC6]' : ''}">${index + 1}. ${escapeHtml(step.title || '')}</span>
+              <span class="text-[9px] font-mono ${color}">${label}</span>
+            </div>
+            ${acceptance}${evidence}
+          </div>
+        </div>`;
+      }).join('');
+      lucide.createIcons();
+    }
+
+    function updatePlanVerification(event) {
+      const el = document.getElementById('plan-verify');
+      if (!el) return;
+      const status = event.status || '';
+      const map = {
+        running: ['执行中', 'bg-[#FFFBF6] text-[#C98B4E]'],
+        passed: ['通过', 'bg-[#EDF7F1] text-[#267F68]'],
+        repair: ['待补充证据', 'bg-[#FFFBF6] text-[#C98B4E]'],
+        failed: ['未通过', 'bg-[#FFF1F0] text-[#B4544E]'],
+        skipped: ['未启用', 'bg-[#F5F8F7] text-[#7A8C87]'],
+      };
+      const meta = map[status];
+      if (!meta) return;
+      el.innerText = meta[0];
+      el.className = `text-[9px] font-mono px-1.5 py-0.5 rounded-full shrink-0 ${meta[1]}`;
+      el.title = event.reason || '';
+    }
+
+    async function loadPlan(sessionId) {
+      const panel = document.getElementById('plan-panel');
+      if (!sessionId) {
+        if (panel) panel.classList.add('hidden');
+        return;
+      }
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/plan`);
+        if (!res.ok) {
+          if (panel) panel.classList.add('hidden');
+          return;
+        }
+        const data = await res.json();
+        renderPlan(data);
+        if (data.verification_status) {
+          updatePlanVerification({status: data.verification_status, reason: ''});
+        }
+      } catch (e) {
+        if (panel) panel.classList.add('hidden');
+      }
+    }
+
+    function hidePlan() {
+      const panel = document.getElementById('plan-panel');
+      if (panel) panel.classList.add('hidden');
+    }
+
     function handleStreamEvent(event, ctx) {
       if (event.type === 'thought') {
         appendThought(ctx, event.content);
@@ -2034,6 +2170,11 @@
         appendPermission(ctx, event);
       } else if (event.type === 'compaction') {
         appendCompaction(ctx, event);
+      } else if (event.type === 'plan_update') {
+        renderPlan(event);
+        updatePlanVerification({status: 'running', reason: '计划执行中'});
+      } else if (event.type === 'verification') {
+        updatePlanVerification(event);
       } else if (event.type === 'answer_chunk') {
         ctx.fullMarkdown += event.content || '';
         ctx.answerContainer.classList.remove('hidden');
@@ -2092,6 +2233,7 @@
       document.getElementById('empty-state').classList.add('hidden');
       document.getElementById('chat-stream').classList.remove('hidden');
       document.getElementById('chat-input-bar').classList.remove('hidden');
+      hidePlan();
 
       const chatStream = document.getElementById('chat-stream');
       const userBubble = document.createElement('div');
@@ -2688,7 +2830,7 @@
         const riskColor = { ALLOW: '#267F68', SAFE_EXEC: '#3975B9', ASK_USER: '#C98B4E', DENY: '#B4544E' };
         rows.forEach(row => {
           const tr = document.createElement('tr');
-          const decisionColor = row.status === 'BLOCKED' ? '#B4544E' : (row.status === 'ERROR' || row.status === 'TIMEOUT' ? '#C98B4E' : '#267F68');
+          const decisionColor = row.status === 'BLOCKED' ? '#B4544E' : (['ERROR', 'TIMEOUT', 'INVALID'].includes(row.status) ? '#C98B4E' : '#267F68');
           const when = String(row.created_at || '').replace('T', ' ').slice(0, 19);
           tr.innerHTML = `
             <td class="px-3 py-2 font-mono text-[10px] text-[#7A8C87]">${escapeHtml(when)}</td>

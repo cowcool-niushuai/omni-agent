@@ -92,6 +92,11 @@ class Settings(BaseSettings):
     subagent_timeout_seconds: float = 300.0
     tool_max_output_chars: int = 12_000
     tool_max_concurrency: int = 4
+    tool_retry_attempts: int = 2
+    tool_retry_backoff_seconds: float = 0.3
+    verification_max_retries: int = 2
+    retrieval_hybrid_weight: float = 0.7
+    retrieval_embedding_dim: int = 256
     max_file_write_bytes: int = 10 * 1024 * 1024
 
     web_fetch_timeout_seconds: float = 10.0

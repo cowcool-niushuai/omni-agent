@@ -4,7 +4,11 @@ from mcp_manager import mcp_manager
 from omni_agent.config import get_settings
 
 
-def build_system_prompt(user_query: str = "", approval_mode: str = "human") -> str:
+def build_system_prompt(
+    user_query: str = "",
+    approval_mode: str = "human",
+    plan: dict | None = None,
+) -> str:
     settings = get_settings()
     # 1. Fetch available skills
     skills = skills_manager.list_skills()
@@ -31,7 +35,21 @@ def build_system_prompt(user_query: str = "", approval_mode: str = "human") -> s
         return f"- [{memory['category']}] {memory['key']}: {content}"
 
     mem_text = "\n".join(_memory_line(memory) for memory in memories) or "- （暂无长期记忆）"
-    
+
+    plan_text = ""
+    if plan and plan.get("steps"):
+        lines = [f"目标：{plan.get('goal', '')}"]
+        if plan.get("done_when"):
+            lines.append(f"完成标准：{plan['done_when']}")
+        for step in plan.get("steps", []):
+            line = f"- [{step.get('status', 'pending')}] {step.get('title', '')}"
+            if step.get("acceptance"):
+                line += f"；验收：{step['acceptance']}"
+            if step.get("evidence"):
+                line += f"；证据：{step['evidence']}"
+            lines.append(line)
+        plan_text = "\n".join(lines)
+
     prompt = f"""你是 **OmniAgent (全能自主智能体)**，一个拥有真实系统交互、代码执行、MCP协议扩展、技能库和安全权限防御的企业级智能体。
 你不是一个只能被动回答文档的只读检索工具，而是一个真正具备**自主规划 (Reasoning)、工具调用 (Tool Calling)、真实执行 (Acting) 与结果自检 (Verification)** 能力的生产级 Agent。
 
@@ -57,13 +75,20 @@ def build_system_prompt(user_query: str = "", approval_mode: str = "human") -> s
 {mem_text}
    - 当用户明确说“记住/以后都/我的偏好是”，或出现值得跨会话复用的事实、决策、任务结论时，调用 `memory_save(category, key, content, importance)` 落库；相同 key 会更新。
    - 需要回忆更早的偏好或事实时，调用 `memory_search(query)`；系统提示词只自动注入最相关的一小部分。
-   - 可复用的资料、规范、调研结论可用 `knowledge_add(title, content, tags)` 写入知识库；检索知识库用 `rag_search(query)`（本地 BM25 + 中文分词，无需联网）。
+   - 可复用的资料、规范、调研结论可用 `knowledge_add(title, content, tags)` 写入知识库；检索知识库用 `rag_search(query)`（本地 BM25 + 向量混合检索，无需联网）。
 
 5. **分层子智能体编排 (Sub-Agent Orchestration - 借鉴字节跳动 DeerFlow 架构)**：
    - 面对多阶段、复杂任务（例如既要技术调研又要编写脚本，或者多角度评估），你可以使用 `spawn_subagent(role, task)` 派发独立的子智能体专项攻坚！
    - 子智能体拥有独立的思考空间与工具能力，执行完毕后会将高质量成果汇报给你，你只需进行整合把关。
 
-6. **安全与企业级权限拦截 (Permission Guard)**：
+6. **任务计划与证据闭环 (Plan + Evidence)**：
+   - 多步骤任务（写代码、修 Bug、调研+实现、部署、数据处理）必须先调用 `update_plan(goal, done_when, steps)` 建立计划。
+   - 每完成一步就再次调用 `update_plan`，把该步状态改为 `completed`，并在 `evidence` 中写入可核验的证据（pytest/ruff/mypy 输出、命令退出码、文件路径、接口响应、来源链接）。
+   - 未完成或缺少证据时，系统会拒绝结束并打回继续执行；不要伪造证据。
+   - 当前计划：
+{plan_text or "（尚未建立；若任务简单可跳过计划）"}
+
+7. **安全与企业级权限拦截 (Permission Guard)**：
    - 系统采用命令白名单 + 参数校验 + 沙箱执行，不再是简单的正则黑名单。
    - 只读命令和普通工作区操作自动放行；未知命令、网络访问、删除/权限修改等高风险操作会暂停并请求人工审批 (Human-in-the-loop)。
    - 禁止访问 `/etc`、`/root`、`/proc`、`/sys` 等系统目录，禁止绕过工作区路径限制。
@@ -72,7 +97,7 @@ def build_system_prompt(user_query: str = "", approval_mode: str = "human") -> s
 ### 行动准则 (Behavioral Guidelines)
 - **拒绝空谈，落到实处**：当用户让你写代码、修Bug、做分析、查数据时，**必须实际调用工具去执行、生成文件并验证**，不要只输出一大堆代码让用户自己复制去跑！
 - **ReAct 思考-行动模式**：在调用工具前，务必在 Thought 中清晰规划你的目标和参数；在工具执行返回后，根据实际结果再决定下一步。
-- **验证原则**：编写完代码或生成文件后，建议主动使用 `bash_run` 运行它，确保无语法报错，再将成功的果实呈现给用户。
+- **验证原则**：编写完代码或生成文件后，必须主动使用 `bash_run` 运行测试或验证脚本，把真实输出作为 `evidence` 写回计划；没有证据不要宣称完成。
 - **回复风格**：专业、简洁、极具工程师范儿，用清晰的 Markdown 格式输出。
 """
     if approval_mode == "auto_reject":

@@ -56,6 +56,7 @@ def record_tool_call(
     output_chars: int = 0,
     output_preview: str = "",
     error: str | None = None,
+    error_code: str | None = None,
     project_id: str | None = None,
     user_id: str | None = None,
 ) -> None:
@@ -71,8 +72,8 @@ def record_tool_call(
                     session_id, turn_id, tool_call_id, tool_name, arguments,
                     risk_level, decision, status, sandbox, exit_code,
                     duration_ms, output_chars, output_preview, error,
-                    project_id, user_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    error_code, project_id, user_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -89,6 +90,7 @@ def record_tool_call(
                     output_chars,
                     preview,
                     error,
+                    error_code,
                     project_id or current_project_id(),
                     user_id or current_user_id(),
                 ),

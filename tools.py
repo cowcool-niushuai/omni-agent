@@ -7,6 +7,7 @@ optional bubblewrap isolation. Network fetching is protected against SSRF.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -23,6 +24,7 @@ from browser import browser_manager
 from mcp_manager import mcp_manager
 from omni_agent import tenancy
 from omni_agent.config import get_settings
+from omni_agent.runtime import planning
 from omni_agent.security import PathSecurityError, safe_join
 from omni_agent.security.commands import DENY as COMMAND_DENY
 from omni_agent.security.commands import assess_command
@@ -752,6 +754,36 @@ NATIVE_TOOLS_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "update_plan",
+            "description": "创建或更新本轮任务计划。多步骤任务必须先调用本工具；每完成一步就更新状态与验证证据 (evidence)。完成标准写入 done_when，completed 步骤必须提供 evidence。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string", "description": "本轮任务的明确目标。"},
+                    "done_when": {"type": "string", "description": "可验证的完成标准，例如 pytest 通过、文件存在、接口返回 200。"},
+                    "steps": {
+                        "type": "array",
+                        "description": "计划步骤，按执行顺序排列；完成后更新状态和证据。",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "description": "稳定步骤 ID，省略时自动生成 step-N。"},
+                                "title": {"type": "string", "description": "步骤标题。"},
+                                "status": {"type": "string", "enum": ["pending", "in_progress", "completed", "blocked"]},
+                                "acceptance": {"type": "string", "description": "该步骤的验收条件。"},
+                                "evidence": {"type": "string", "description": "完成证据：测试输出、命令退出码、文件路径、接口响应或来源。"}
+                            },
+                            "required": ["title", "status"]
+                        }
+                    }
+                },
+                "required": ["goal", "steps"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "spawn_subagent",
             "description": "【DeerFlow 架构核心】派发独立的专业子智能体 (Sub-Agent) 专项处理复杂子任务（如专项技术调研、独立写模块代码、做数据报表），返回子智能体的执行成果总结。",
             "parameters": {
@@ -771,6 +803,19 @@ NATIVE_TOOLS_DEFINITIONS = [
         }
     }
 ]
+
+
+def tool_update_plan(
+    goal: str, done_when: str = "", steps: list[dict[str, Any]] | None = None
+) -> str:
+    plan = planning.normalize_plan(
+        {"goal": goal, "done_when": done_when, "steps": steps or []}
+    )
+    if not plan["goal"]:
+        return "[参数错误] 计划目标不能为空。"
+    if not plan["steps"]:
+        return "[参数错误] 计划至少需要一个步骤。"
+    return "计划已更新：\n" + json.dumps(plan, ensure_ascii=False, indent=2)
 
 
 def dispatch_tool(tool_name: str, arguments: dict[str, Any]) -> str:
@@ -830,6 +875,12 @@ def dispatch_tool(tool_name: str, arguments: dict[str, Any]) -> str:
         )
     elif tool_name == "read_skill_doc":
         return tool_read_skill_doc(arguments.get("skill_id", ""))
+    elif tool_name == "update_plan":
+        return tool_update_plan(
+            str(arguments.get("goal", "")),
+            str(arguments.get("done_when", "")),
+            arguments.get("steps") or [],
+        )
 
     # MCP Tools
     if tool_name.startswith("mcp_"):

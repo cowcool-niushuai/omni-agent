@@ -268,6 +268,7 @@ def init_db():
         ("permission_requests", "project_id", "TEXT"),
         ("subagent_tasks", "project_id", "TEXT"),
         ("tool_audit", "project_id", "TEXT"),
+        ("tool_audit", "error_code", "TEXT"),
         ("tool_audit", "user_id", "TEXT"),
         ("scheduled_tasks", "project_id", "TEXT"),
         ("scheduled_tasks", "owner_id", "TEXT"),

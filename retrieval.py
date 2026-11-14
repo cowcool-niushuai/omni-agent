@@ -1,8 +1,8 @@
 """Local, dependency-free retrieval for memories and knowledge documents.
 
 The agent runs fully offline by default, so retrieval must not depend on an
-embedding service.  This module implements a small BM25 index with a
-CJK-aware tokenizer:
+embedding service.  This module combines a small BM25 index with a
+dependency-free hashed embedding and a CJK-aware tokenizer:
 
 * Latin words/numbers are lower-cased and split on non-word characters.
 * CJK text is indexed as unigrams and bigrams, which works surprisingly well
@@ -15,10 +15,13 @@ which keeps the ranking logic easy to test and reuse.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 from collections import Counter
 from typing import Any, Callable, Sequence
+
+from omni_agent.config import get_settings
 
 _CJK_RUN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
 _WORD = re.compile(r"[a-z0-9_]+")
@@ -39,6 +42,32 @@ def tokenize(text: str) -> list[str]:
         tokens.extend(run)
         tokens.extend(run[index : index + 2] for index in range(len(run) - 1))
     return tokens
+
+
+def embed_text(text: str, dim: int = 256) -> list[float]:
+    """Dependency-free hashed embedding.
+
+    A signed feature-hash over CJK/Latin tokens gives a stable dense vector
+    without an embedding API.  It is not a semantic model, but it adds fuzzy
+    overlap and is a useful second signal beside BM25.
+    """
+    dim = max(32, int(dim))
+    vector = [0.0] * dim
+    for token in tokenize(text):
+        digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+        raw = int.from_bytes(digest, "big")
+        sign = 1.0 if raw & 1 else -1.0
+        vector[raw % dim] += sign
+    norm = math.sqrt(sum(value * value for value in vector))
+    if norm:
+        vector = [value / norm for value in vector]
+    return vector
+
+
+def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
+    if not left or not right:
+        return 0.0
+    return sum(a * b for a, b in zip(left, right, strict=False))
 
 
 def _rank(
@@ -74,11 +103,19 @@ def _rank(
         for term in query_terms
     }
 
+    settings = get_settings()
+    hybrid_weight = max(0.0, min(float(settings.retrieval_hybrid_weight), 1.0))
+    dim = int(settings.retrieval_embedding_dim)
+    query_vector = embed_text(query, dim)
     query_phrase = query.strip().lower()
-    scored: list[tuple[float, int, dict[str, Any]]] = []
+    raw_scores: list[float] = []
+    texts: list[str] = []
     for index, document in enumerate(documents):
         tokens = tokenized[index]
+        text = text_of(document)
+        texts.append(text)
         if not tokens:
+            raw_scores.append(0.0)
             continue
         frequencies = Counter(tokens)
         score = 0.0
@@ -90,10 +127,20 @@ def _rank(
                 1 - b + b * (lengths[index] / average_length)
             )
             score += idf[term] * frequency * (k1 + 1) / denominator
-        if score <= 0:
+        raw_scores.append(score)
+
+    max_bm25 = max(raw_scores) if raw_scores else 0.0
+    scored: list[tuple[float, int, dict[str, Any]]] = []
+    for index, document in enumerate(documents):
+        bm25 = raw_scores[index] / max_bm25 if max_bm25 > 0 else 0.0
+        cosine = max(0.0, _cosine(query_vector, embed_text(texts[index], dim)))
+        # Dense overlap may find a match even when no exact token does, but a
+        # weak cosine is mostly noise, so require a clear signal.
+        if bm25 <= 0 and cosine < 0.35:
             continue
-        if len(query_phrase) >= 2 and query_phrase in text_of(document).lower():
-            score += 1.0
+        score = (1.0 - hybrid_weight) * bm25 + hybrid_weight * cosine
+        if len(query_phrase) >= 2 and query_phrase in texts[index].lower():
+            score += 0.08
         if score_of is not None:
             score *= score_of(document)
         scored.append((score, index, document))

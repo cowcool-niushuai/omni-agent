@@ -656,6 +656,12 @@ async def api_get_messages(session_id: str):
     _require_session(session_id)
     return database.get_session_messages(session_id)
 
+
+@app.get("/api/sessions/{session_id}/plan")
+async def api_get_session_plan(session_id: str):
+    _require_session(session_id)
+    return await agent_core.get_plan(session_id)
+
 # 3. Realtime SSE Streaming Chat Endpoint
 class ChatRequest(BaseModel):
     session_id: str

@@ -66,14 +66,26 @@ def _find_cut(messages: list[dict[str, Any]], keep_last: int, floor: int) -> int
 
 def _local_summary(messages: list[dict[str, Any]]) -> str:
     tool_names: list[str] = []
+    user_goals: list[str] = []
     for message in messages:
+        if message.get("role") == "user":
+            content = str(message.get("content") or "").strip()
+            if content:
+                user_goals.append(content[:200])
         for call in message.get("tool_calls") or []:
             function = call.get("function", {}) if isinstance(call, dict) else {}
             name = str(function.get("name", ""))
             if name and name not in tool_names:
                 tool_names.append(name)
     tools = f"；涉及工具：{', '.join(tool_names)}" if tool_names else ""
-    return f"已压缩 {len(messages)} 条较早的对话消息{tools}。"
+    goals = "；".join(user_goals[-3:]) or "（未记录）"
+    return (
+        f"已压缩 {len(messages)} 条较早的对话消息{tools}。\n"
+        f"- 用户目标：{goals}\n"
+        "- 关键决策：见上方对话与工具结果\n"
+        "- 修改文件：见工具输出中的文件路径\n"
+        "- 错误与未完成事项：需在后续步骤中继续确认"
+    )
 
 
 async def maybe_compact(
@@ -108,10 +120,11 @@ async def maybe_compact(
     rendered = "\n".join(_render_for_summary(message) for message in to_summarize)
     previous = f"已有摘要：\n{summary}\n\n" if summary else ""
     prompt = (
-        "你是一个上下文压缩器。请把下面的 Agent 对话压缩成一份事实性摘要，"
-        "供后续继续执行任务时使用。必须保留：用户目标、已确认的决策、"
-        "创建或修改的文件路径、关键工具执行结果、未完成的事项和错误。"
-        "不要编造，不要输出寒暄，控制在 800 字以内。\n\n"
+        "你是一个上下文压缩器。请把下面的 Agent 对话压缩成一份事实性、结构化摘要，"
+        "供后续继续执行任务时使用。严格按以下小节输出，禁止寒暄和编造：\n"
+        "## 用户目标\n## 已确认决策\n## 修改/创建的文件\n"
+        "## 关键工具结果与证据\n## 错误与风险\n## 未完成事项\n## 下一步\n"
+        "控制在 900 字以内；不确定的信息标注“未确认”。\n\n"
         f"{previous}待压缩对话：\n{rendered}"
     )
 
