@@ -1380,15 +1380,18 @@
       const box = document.getElementById('composer-attachments');
       if (!box) return;
       box.classList.toggle('hidden', pendingAttachments.length === 0);
-      box.innerHTML = pendingAttachments.map(item => `
+      box.innerHTML = pendingAttachments.map(item => {
+        const image = String(item.file?.type || '').startsWith('image/');
+        return `
         <div class="flex items-center gap-1.5 max-w-[230px] pl-2 pr-1 py-1 rounded-lg bg-[#F5F8F7] border border-[#E3ECE9] text-[10px] text-[#4A5568]">
-          <i data-lucide="paperclip" class="w-3 h-3 text-[#267F68] shrink-0"></i>
+          <i data-lucide="${image ? 'image' : 'paperclip'}" class="w-3 h-3 text-[#267F68] shrink-0"></i>
           <span class="truncate" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
           <span class="font-mono text-[9px] text-[#9AA9A4] shrink-0">${formatAttachmentSize(item.size)}</span>
           <button type="button" onclick="removePendingAttachment('${item.id}')" title="移除附件" class="w-4 h-4 rounded text-[#9AA9A4] hover:text-[#A33A3A] hover:bg-[#FDF2F2] flex items-center justify-center shrink-0">
             <i data-lucide="x" class="w-2.5 h-2.5"></i>
           </button>
-        </div>`).join('');
+        </div>`;
+      }).join('');
       lucide.createIcons();
     }
 
@@ -1430,6 +1433,24 @@
     function handleAttachmentInput(event) {
       addPendingAttachments(event.target.files);
       event.target.value = '';
+    }
+
+    function handleComposerPaste(event) {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+      const files = [];
+      for (const item of items) {
+        if (item.kind !== 'file' || !String(item.type || '').startsWith('image/')) continue;
+        const file = item.getAsFile();
+        if (!file) continue;
+        const ext = (String(file.type).split('/')[1] || 'png').replace('jpeg', 'jpg');
+        const name = `粘贴图片-${Date.now()}-${files.length + 1}.${ext}`;
+        files.push(new File([file], name, { type: file.type }));
+      }
+      if (!files.length) return;
+      event.preventDefault();
+      addPendingAttachments(files);
+      toast(`已粘贴 ${files.length} 张图片，发送后会保存为附件。`, 'success');
     }
 
     function showComposerDropOverlay(show) {
@@ -1491,6 +1512,7 @@
       });
       const card = document.getElementById('composer-card');
       if (card) {
+        card.addEventListener('paste', handleComposerPaste);
         const hasFiles = event => Array.from(event.dataTransfer?.types || []).includes('Files');
         card.addEventListener('dragenter', event => {
           if (!hasFiles(event)) return;
