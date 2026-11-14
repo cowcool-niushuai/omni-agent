@@ -44,6 +44,26 @@
 > [!NOTE]
 > OmniAgent 不是“只会聊天的壳”。它把模型、工具、权限、沙箱、记忆、MCP、定时任务和审计放进同一个可恢复的 Agent Runtime，并同时提供桌面端、Web Console 和 CLI。
 
+## 目录
+
+<sub>点击任意条目直达对应章节；下方长内容默认折叠，点开即可阅读。</sub>
+
+- [为什么是 OmniAgent](#为什么是-omniagent)
+- [三种入口](#三种入口)
+- [架构一览](#架构一览)
+- [60 秒启动](#60-秒启动)
+- [核心能力（21 项，默认折叠）](#核心能力)
+- [架构](#架构)
+- [目录结构](#目录结构)
+- [快速开始](#快速开始)
+- [配置](#配置)
+- [安全约定](#安全约定)
+- [测试](#测试)
+- [路线图](#路线图)
+- [贡献、安全与许可](#贡献安全与许可)
+
+---
+
 ## 为什么是 OmniAgent
 
 | 常见 Agent Demo | OmniAgent |
@@ -81,26 +101,6 @@ flowchart LR
   API --> DB[(Sessions / Memory / Audit)]
 ```
 
----
-
-<details>
-<summary><b>目录 / Table of Contents</b></summary>
-
-- [为什么是 OmniAgent](#为什么是-omniagent)
-- [三种入口](#三种入口)
-- [架构一览](#架构一览)
-- [60 秒启动](#60-秒启动)
-- [核心能力](#核心能力)
-- [架构](#架构)
-- [快速开始](#快速开始)
-- [配置](#配置)
-- [安全约定](#安全约定)
-- [测试](#测试)
-- [路线图](#路线图)
-- [贡献、安全与许可](#贡献安全与许可)
-
-</details>
-
 ## 60 秒启动
 
 ```bash
@@ -124,7 +124,13 @@ npm start
 
 ## 核心能力
 
-### 1. 真正的流式 Agent 内核
+<sub>流式内核 · 可恢复审批 · 沙箱与审计 · MCP · RAG · 定时任务 · 团队版 · 桌面端</sub>
+
+<details>
+<summary><b>展开查看 · 21 项核心能力</b></summary>
+
+<details>
+<summary><b>1. 真正的流式 Agent 内核</b></summary>
 
 基于 **LangGraph 显式 StateGraph**，而不是黑盒 Agent：
 
@@ -137,7 +143,10 @@ START -> agent -> (需要审批?) -> approval -> tools -> agent -> ... -> END
 - 同一会话内的独立工具调用并行执行
 - 每一步状态写入 SQLite checkpoint，进程重启后仍可恢复
 
-### 2. Human-in-the-loop 审批，可以真正恢复执行
+</details>
+
+<details>
+<summary><b>2. Human-in-the-loop 审批，可以真正恢复执行</b></summary>
 
 高危命令不会只弹一个“已拦截”的提示：
 
@@ -148,14 +157,20 @@ START -> agent -> (需要审批?) -> approval -> tools -> agent -> ... -> END
 
 审批请求 ID 是确定性的，节点重放不会产生重复记录。
 
-### 3. 上下文压缩与断点续跑
+</details>
+
+<details>
+<summary><b>3. 上下文压缩与断点续跑</b></summary>
 
 - 使用 `tiktoken` 估算 token，超过预算后自动把较早消息压缩成摘要
 - 最近消息保留原文，避免丢失当前任务细节
 - checkpoint 保存完整消息、工具调用和审批状态
 - 同一会话重复打开、服务重启后仍能继续
 
-### 4. 工具、MCP 与 Skills
+</details>
+
+<details>
+<summary><b>4. 工具、MCP 与 Skills</b></summary>
 
 原生工具：
 
@@ -174,7 +189,10 @@ START -> agent -> (需要审批?) -> approval -> tools -> agent -> ... -> END
 - **Skills**：扫描 `skills/*/SKILL.md`，按需注入技能规范
 - **子代理**：主 Agent 可以把独立子任务委派给专职子 Agent
 
-### 5. 权限策略
+</details>
+
+<details>
+<summary><b>5. 权限策略</b></summary>
 
 四级风险模型：
 
@@ -191,14 +209,20 @@ START -> agent -> (需要审批?) -> approval -> tools -> agent -> ... -> END
 2. **可执行文件白名单**：只读 / 工作区写入 / 需审批 / 禁止执行四类；未知二进制需要人工批准
 3. **参数校验**：路径参数必须留在工作区；`find -exec`、`git -c`、`pip install` 等高危参数会升级为审批
 
-### 6. 沙箱与资源配额
+</details>
+
+<details>
+<summary><b>6. 沙箱与资源配额</b></summary>
 
 - **bubblewrap 后端**（默认 `auto`，检测到 `bwrap` 即启用）：只读系统目录、可写工作区、私有 `/tmp`、默认无网络
 - **process 后端**：无 shell + 独立进程组 + 环境变量清洗 + `RLIMIT_CPU/AS/FSIZE/NOFILE` 限制
 - 命令超时、输出字节上限、工具执行超时、并发上限、单文件写入上限
 - 子智能体共享同一套策略，遇到高危操作直接拒绝而不是暂停父图
 
-### 7. SSRF 防护
+</details>
+
+<details>
+<summary><b>7. SSRF 防护</b></summary>
 
 `web_fetch` 只允许 `http/https` 与白名单端口，拒绝：
 
@@ -209,7 +233,10 @@ START -> agent -> (需要审批?) -> approval -> tools -> agent -> ... -> END
 
 每次重定向都会重新校验；请求建立后还会检查实际连接的 peer IP，关闭 DNS rebinding 窗口。
 
-### 8. 审计与执行记录
+</details>
+
+<details>
+<summary><b>8. 审计与执行记录</b></summary>
 
 每次工具调用（包括被拒绝的调用）都会写入 `tool_audit` 表：
 
@@ -219,7 +246,10 @@ START -> agent -> (需要审批?) -> approval -> tools -> agent -> ... -> END
 
 Web 控制台新增“审计记录”页，也可以调用 `GET /api/audit`、`GET /api/audit/stats`；CLI 使用 `/audit` 查看当前会话记录。
 
-### 9. 会话、记忆与知识库
+</details>
+
+<details>
+<summary><b>9. 会话、记忆与知识库</b></summary>
 
 - 会话与消息持久化到 SQLite
 - **本地 BM25 检索**：`omni_agent/retrieval.py` 提供中英文混合分词与排序，中文按 unigram + bigram 处理，不依赖嵌入服务或网络
@@ -231,7 +261,10 @@ Web 控制台新增“审计记录”页，也可以调用 `GET /api/audit`、`G
 
 记忆与知识库都存放在本地 SQLite（`omni_agent.db`）。记忆写入走统一权限分类：`memory_search` 只读放行，`memory_save` / `knowledge_add` 作为本地安全写入自动执行并进入审计日志。
 
-### 10. 定时任务与无人值守执行
+</details>
+
+<details>
+<summary><b>10. 定时任务与无人值守执行</b></summary>
 
 定时任务复用同一套 LangGraph 运行时、工具策略、会话历史与审计表：
 
@@ -244,7 +277,10 @@ Web 控制台新增“审计记录”页，也可以调用 `GET /api/audit`、`G
 - Web 控制台“定时任务”页支持创建、编辑、启停、立即运行、删除和查看上次结果
 - REST API：`GET/POST /api/schedules`、`GET/PATCH/DELETE /api/schedules/{id}`、`POST /api/schedules/{id}/run`
 
-### 11. 官方 MCP SDK 客户端
+</details>
+
+<details>
+<summary><b>11. 官方 MCP SDK 客户端</b></summary>
 
 `mcp_manager.py` 已从手写 JSON-RPC 迁移到官方 `mcp` Python SDK v2：
 
@@ -255,7 +291,10 @@ Web 控制台新增“审计记录”页，也可以调用 `GET /api/audit`、`G
 - 支持官方 `CallToolResult` 文本/图片/音频/资源链接内容块，结构化结果自动转 JSON
 - `mcp_config.json` 的 Server 配置支持 `command`、`args`、`env`、`cwd`、`enabled`
 
-### 11.1 MCP 可视化管理
+</details>
+
+<details>
+<summary><b>11.1 MCP 可视化管理</b></summary>
 
 设置页的「MCP 服务」现在支持在界面中管理本地 stdio MCP Server，不需要手工编辑配置文件或重启应用：
 
@@ -280,7 +319,10 @@ POST   /api/mcp/reload
 
 MCP 的 `command` 本质上会启动本地进程，因此管理接口仅限管理员，并把配置变更纳入审计和权限边界。
 
-### 11.2 Git 与 GitHub 管理
+</details>
+
+<details>
+<summary><b>11.2 Git 与 GitHub 管理</b></summary>
 
 设置 → Git 与 GitHub 提供当前工作区仓库和 GitHub 账户的统一管理：
 
@@ -335,7 +377,10 @@ POST   /api/git/github/issues
 
 限制：当前只支持 GitHub.com API，不包含 GitHub Enterprise、OAuth 登录、GitLab/Gitea 专用 API；GitLab/Bitbucket 可通过普通 Git remote 使用。
 
-### 12. 无头浏览器自动化
+</details>
+
+<details>
+<summary><b>12. 无头浏览器自动化</b></summary>
 
 `browser.py` 基于 Playwright + Chromium 提供受控的网页交互能力：
 
@@ -354,7 +399,10 @@ POST   /api/git/github/issues
 uv run playwright install chromium
 ```
 
-### 12.1 桌面应用启动
+</details>
+
+<details>
+<summary><b>12.1 桌面应用启动</b></summary>
 
 普通 `bash_run` 运行在 bwrap 沙箱中，没有用户的图形会话，因此无法打开 QQ、微信这类桌面软件。新增的 `desktop_app` 工具专门处理这个场景：
 
@@ -375,7 +423,10 @@ DESKTOP_APP_LIST_LIMIT=80
 
 限制：这是本地桌面能力，远程部署的后端只能打开服务器自己的图形会话；Flatpak 应用需要当前用户已经安装并完成首次启动。
 
-### 13. 多厂商模型适配
+</details>
+
+<details>
+<summary><b>13. 多厂商模型适配</b></summary>
 
 模型体系参考 OpenCode 的 **Provider / Model Registry** 形式，但保持 Python 侧实现简洁：
 
@@ -406,7 +457,10 @@ Web UI 的模型配置弹窗已支持厂商预设、适配器选择、连接测�
 
 > Google Gemini 目前使用其 OpenAI 兼容端点；Anthropic 使用原生适配器。OAuth、ChatGPT/Copilot 登录和 models.dev 全量目录不在当前范围内。
 
-### 14. 会话管理与生产化基础
+</details>
+
+<details>
+<summary><b>14. 会话管理与生产化基础</b></summary>
 
 对话记录不再只是“只增不减”的日志：
 
@@ -434,7 +488,10 @@ GET    /api/sessions/{id}/export
 GET    /api/system/info
 ```
 
-### 14.1 选择本地文件夹作为项目
+</details>
+
+<details>
+<summary><b>14.1 选择本地文件夹作为项目</b></summary>
 
 开始界面可以直接选择项目：
 
@@ -460,7 +517,10 @@ POST /api/projects            # 可带 workspace_path
 POST /api/projects/open-folder  # {path, name?}
 ```
 
-### 15. 团队版：身份、RBAC 与项目隔离
+</details>
+
+<details>
+<summary><b>15. 团队版：身份、RBAC 与项目隔离</b></summary>
 
 默认仍是**本地单管理员模式**，不改变原有使用方式。设置：
 
@@ -518,7 +578,10 @@ POST   /api/audit/purge
 
 企业级差距与后续路线见 [`docs/ENTERPRISE_ROADMAP.md`](docs/ENTERPRISE_ROADMAP.md)。
 
-### 16. Electron 桌面客户端
+</details>
+
+<details>
+<summary><b>16. Electron 桌面客户端</b></summary>
 
 `desktop/` 提供原生桌面窗口，不再依赖浏览器标签页：
 
@@ -571,7 +634,10 @@ make desktop-dist    # 构建后端 + 生成 Linux AppImage + deb
 
 ---
 
-### 17. 可靠性增强：计划、工具契约、混合检索与验证器
+</details>
+
+<details>
+<summary><b>17. 可靠性增强：计划、工具契约、混合检索与验证器</b></summary>
 
 这一阶段解决“会调用工具”与“能可靠完成任务”之间的差距：
 
@@ -609,7 +675,10 @@ GET /api/sessions/{session_id}/plan   # 当前持久计划与验证状态
 
 ---
 
-### 18. 联网搜索：Tavily 与 SearXNG
+</details>
+
+<details>
+<summary><b>18. 联网搜索：Tavily 与 SearXNG</b></summary>
 
 `web_search(query, max_results)` 是独立于本地知识库的联网检索工具。项目不内置搜索 Key，也不默认联网；未配置时会明确返回“联网搜索未启用”，不会编造结果。
 
@@ -646,7 +715,10 @@ SEARCH_API_KEY=tvly-...
 
 不配置任何搜索后端时，Agent 仍可使用本地知识库、文件、命令和浏览器；只是不会声称自己完成了联网搜索。
 
-### 19. 完全访问模式（Full Access）
+</details>
+
+<details>
+<summary><b>19. 完全访问模式（Full Access）</b></summary>
 
 默认是 **严格模式**：命令在 bubblewrap 中执行，默认无网络，文件读取限制在工作区，高危操作需要审批。
 
@@ -677,7 +749,10 @@ PATCH /api/security/policy
 
 > ⚠️ 完全访问可以读取宿主机的环境变量、SSH 配置和本地密钥。只应在可信设备上临时开启，完成任务后切回严格模式。
 
-### 20. 对话附件与拖拽上传
+</details>
+
+<details>
+<summary><b>20. 对话附件与拖拽上传</b></summary>
 
 首页输入框和对话输入框都支持附件；左侧有附件按钮，也可以把文件直接拖进输入框：
 
@@ -710,7 +785,10 @@ POST /api/uploads
 
 Agent 会把附件内容视为不可信数据，需要时通过 `file_read`、`python_eval` 或专用解析工具读取。附件路径同样受当前项目工作区限制。
 
-### 图片理解
+</details>
+
+<details>
+<summary><b>20.1 图片理解</b></summary>
 
 当模型声明 `capabilities.vision=true`（或模型名称包含 `视觉` / `vision` / `gpt-4o` / `gpt-4.1` / `claude` / `gemini` / `qwen-vl`）时，图片附件会自动转成多模态内容块发送给模型：
 
@@ -734,7 +812,10 @@ Agent 会把附件内容视为不可信数据，需要时通过 `file_read`、`p
 - 附件不会自动清理，长期使用建议定期清理 `.uploads`
 - 完全访问模式下附件路径可能指向工作区外，需自行确认安全
 
-### 21. 文档解析：PDF、Word、Excel、PPT
+</details>
+
+<details>
+<summary><b>21. 文档解析：PDF、Word、Excel、PPT</b></summary>
 
 `document_read` 原生工具负责从附件和知识资料中提取文字：
 
@@ -761,7 +842,18 @@ document_read(filepath, max_chars=0)
 - `.doc`、`.xls`、`.ppt` 等旧二进制格式不支持，请另存为 Office Open XML
 - 默认最多返回 `DOCUMENT_MAX_CHARS` 字符，文件最大 `DOCUMENT_MAX_BYTES`
 
+</details>
+
+<p align="right"><a href="#目录">↑ 返回目录</a></p>
+
+</details>
+
+---
+
 ## 架构
+
+<details>
+<summary><b>展开查看 · 运行时架构说明</b></summary>
 
 ```text
 ┌──────────────────────────────┐
@@ -790,9 +882,16 @@ document_read(filepath, max_chars=0)
                  └───────────────────────────┘
 ```
 
+<p align="right"><a href="#目录">↑ 返回目录</a></p>
+
+</details>
+
 ---
 
 ## 目录结构
+
+<details>
+<summary><b>展开查看 · 代码目录与模块职责</b></summary>
 
 ```text
 omni-agent/
@@ -844,9 +943,16 @@ omni-agent/
 └── mcp_servers/sqlite_mcp.py  # 示例 MCP Server
 ```
 
+<p align="right"><a href="#目录">↑ 返回目录</a></p>
+
+</details>
+
 ---
 
 ## 快速开始
+
+<details>
+<summary><b>展开查看 · 本地运行 / CLI / Docker / 常用命令</b></summary>
 
 要求 Python 3.12 与 [uv](https://docs.astral.sh/uv/)。
 
@@ -891,9 +997,16 @@ make typecheck  # mypy
 make check      # 全部检查
 ```
 
+<p align="right"><a href="#目录">↑ 返回目录</a></p>
+
+</details>
+
 ---
 
 ## 配置
+
+<details>
+<summary><b>展开查看 · 完整环境变量表</b></summary>
 
 主要环境变量：
 
@@ -978,9 +1091,16 @@ make check      # 全部检查
 
 完整列表见 `.env.example`。模型 provider 与模型列表在 `model_config.json` 中管理，支持 `provider/model` 引用与 `openai-compatible` / `anthropic` 适配器；**API Key 不会写入该文件**，只从环境变量读取。可参考 `model_config.example.json`。
 
+<p align="right"><a href="#目录">↑ 返回目录</a></p>
+
+</details>
+
 ---
 
 ## 安全约定
+
+<details>
+<summary><b>展开查看 · 安全边界与部署建议</b></summary>
 
 - `.env`、`model_config.json`、`*.db`、`workspace/`、`data/` 均不入库
 - 密钥只从环境变量读取；`.env` 权限应为 `600`
@@ -996,9 +1116,16 @@ make check      # 全部检查
 
 如果曾经把 API Key 提交到源码、日志或截图，请立即到 provider 控制台轮换。
 
+<p align="right"><a href="#目录">↑ 返回目录</a></p>
+
+</details>
+
 ---
 
 ## 测试
+
+<details>
+<summary><b>展开查看 · 测试命令、结果与覆盖范围</b></summary>
 
 ```bash
 uv run pytest -q
@@ -1014,9 +1141,16 @@ uv run mypy
 
 测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、MCP 配置校验/增删改/启停/测试/热重载、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护、密码哈希、登录与 CSRF、项目隔离、跨项目访问拒绝、viewer 只读、Token 作用域、审批请求项目隔离、最后一个管理员保护、工具参数契约与非法参数拦截、工具错误分类、幂等重试策略、计划规范化与验证规则、验证器修复循环、计划 API 与 UI、全访问模式转换、受保护路径与权限策略 API 往返、附件上传路径/文件名清洗/大小限制、图片多模态内容块与 Anthropic 图片转换、默认推理步数上限、PDF/Word/Excel/PPT 文本提取、外部 Git 仓库根目录与权限校验。
 
+<p align="right"><a href="#目录">↑ 返回目录</a></p>
+
+</details>
+
 ---
 
 ## 路线图
+
+<details>
+<summary><b>展开查看 · 阶段路线图</b></summary>
 
 | 阶段 | 状态 | 内容 |
 |---|---|---|
@@ -1031,11 +1165,22 @@ uv run mypy
 | Phase 4 | 🚧 进行中 | 企业级平台：内嵌后端安装包、文件/预览、可观测性、Docker/备份、插件与 SDK |
 | Phase 5 | 🚧 准备中 | 开源发布：LICENSE、社区文档、CI Release、GitHub 仓库与 Release |
 
+<p align="right"><a href="#目录">↑ 返回目录</a></p>
+
+</details>
+
 ---
 
 ## 贡献、安全与许可
+
+<details>
+<summary><b>展开查看 · 贡献方式、安全报告与许可</b></summary>
 
 - 贡献指南：[CONTRIBUTING.md](CONTRIBUTING.md)
 - 安全问题请通过 [SECURITY.md](SECURITY.md) 私下报告，不要公开 Issue
 - 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - 本项目采用 [MIT License](LICENSE)
+
+<p align="right"><a href="#目录">↑ 返回目录</a></p>
+
+</details>
