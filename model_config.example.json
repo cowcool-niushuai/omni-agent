@@ -36,7 +36,8 @@
             "output": 65536
           },
           "capabilities": {
-            "tools": true
+            "tools": true,
+            "vision": true
           },
           "pricing": {
             "input": 0.28,

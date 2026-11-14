@@ -225,3 +225,37 @@ async def test_anthropic_stream_translates_text_and_tool_calls() -> None:
     assert tool_name == "bash_run"
     assert tool_id == "toolu_1"
     assert json.loads(tool_arguments) == {"command": "ls"}
+
+
+def test_anthropic_messages_converts_image_blocks() -> None:
+    system, messages = anthropic_messages(
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "描述图片"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,AAAA"},
+                    },
+                ],
+            }
+        ]
+    )
+    assert system == ""
+    assert messages == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "描述图片"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "AAAA",
+                    },
+                },
+            ],
+        }
+    ]

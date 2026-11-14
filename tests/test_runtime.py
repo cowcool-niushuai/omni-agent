@@ -369,3 +369,21 @@ async def test_compaction_drops_old_messages(isolated_db: Any) -> None:
     assert cut == 16
     assert summary == "压缩摘要"
     assert client.calls and client.calls[0]["stream"] is False
+
+
+async def test_default_max_iterations_exceeds_legacy_five(isolated_db: Any) -> None:
+    scripts = [[tool_chunk(f"call{i}", "file_list", "{}")] for i in range(6)]
+    scripts.append([text_chunk("完成")])
+    client = FakeClient(scripts)
+    runtime = make_runtime(isolated_db, client)
+    try:
+        events = [event async for event in runtime.run_stream("long-task", "继续执行")]
+    finally:
+        await runtime.close()
+
+    chunks = "".join(
+        event["content"] for event in events if event["type"] == "answer_chunk"
+    )
+    assert "推理已达上限" not in chunks
+    assert "完成" in chunks
+    assert len(client.calls) >= 7

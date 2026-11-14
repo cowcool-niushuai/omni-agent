@@ -97,6 +97,55 @@ def _as_text(content: Any) -> str:
     return str(content)
 
 
+def _anthropic_user_blocks(content: Any) -> list[dict[str, Any]]:
+    """Convert OpenAI user content (text/image_url blocks) to Anthropic blocks."""
+    if not isinstance(content, list):
+        return [{"type": "text", "text": _as_text(content)}]
+
+    text_parts: list[str] = []
+    images: list[dict[str, Any]] = []
+    for item in content:
+        if isinstance(item, str):
+            text_parts.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("type") or "")
+        if kind in {"text", "input_text"}:
+            text_parts.append(str(item.get("text") or ""))
+            continue
+        if kind != "image_url":
+            continue
+        image_url = item.get("image_url")
+        if isinstance(image_url, dict):
+            image_url = image_url.get("url")
+        if not isinstance(image_url, str) or not image_url.startswith("data:"):
+            continue
+        header, _, payload = image_url.partition(",")
+        if ";base64" not in header or not payload:
+            continue
+        media_type = header[5:].split(";", 1)[0] or "image/png"
+        if not media_type.startswith("image/"):
+            continue
+        images.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": payload,
+                },
+            }
+        )
+
+    blocks: list[dict[str, Any]] = []
+    text = "".join(text_parts)
+    if text:
+        blocks.append({"type": "text", "text": text})
+    blocks.extend(images)
+    return blocks or [{"type": "text", "text": ""}]
+
+
 def _json_object(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -179,8 +228,8 @@ def anthropic_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[s
                 converted.append({"role": "assistant", "content": blocks})
             continue
 
-        text = _as_text(content)
-        _append_block(converted, "user", {"type": "text", "text": text})
+        for block in _anthropic_user_blocks(content):
+            _append_block(converted, "user", block)
 
     if not converted:
         converted.append({"role": "user", "content": [{"type": "text", "text": ""}]})

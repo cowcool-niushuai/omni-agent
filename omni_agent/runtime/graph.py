@@ -16,7 +16,9 @@ The graph is deliberately explicit (no ``create_agent`` black box):
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+import mimetypes
 import operator
 import re
 import sqlite3
@@ -43,6 +45,7 @@ from omni_agent.config import get_settings
 from omni_agent.runtime import contracts, planning
 from omni_agent.runtime.context import maybe_compact
 from omni_agent.security.limits import truncate_text
+from omni_agent.security.paths import safe_join
 from omni_agent.security.sandbox import detect_backend
 
 log = structlog.get_logger("omni.runtime")
@@ -98,7 +101,18 @@ def _message_text(value: Any) -> str:
         return ""
     if isinstance(value, str):
         return value
-    return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict) and item.get("type") in {
+                "text",
+                "input_text",
+            }:
+                parts.append(str(item.get("text") or ""))
+        return "".join(parts)
+    return str(value)
 
 
 class AgentRuntime:
@@ -232,6 +246,67 @@ class AgentRuntime:
         tenancy.set_context(context)
         return context
 
+    def _build_user_content(
+        self,
+        context: tenancy.TenantContext,
+        user_message: str,
+        attachments: list[dict[str, Any]] | None,
+    ) -> str | list[dict[str, Any]]:
+        """Attach validated local images as multimodal content blocks."""
+        if not attachments:
+            return user_message
+
+        profile = model_manager.get_active_model_info()
+        capabilities = profile.get("capabilities") or {}
+        label = f"{profile.get('label', '')} {profile.get('model_name', '')}".lower()
+        supports_vision = bool(
+            capabilities.get("vision")
+            or "视觉" in label
+            or "vision" in label
+            or any(token in label for token in ("gpt-4o", "gpt-4.1", "claude", "gemini", "qwen-vl"))
+        )
+        if not supports_vision:
+            return user_message
+
+        blocks: list[dict[str, Any]] = [{"type": "text", "text": user_message}]
+        workspace = context.workspace_path
+        seen: set[str] = set()
+        max_images = int(self._settings.vision_max_images)
+        max_bytes = int(self._settings.vision_max_image_bytes)
+
+        for item in attachments:
+            if len(blocks) - 1 >= max_images:
+                break
+            if not isinstance(item, dict):
+                continue
+            relative = str(item.get("path") or "").strip()
+            if not relative or relative in seen:
+                continue
+            try:
+                path = safe_join(workspace, relative)
+            except Exception:
+                continue
+            if not path.is_file():
+                continue
+            mime, _ = mimetypes.guess_type(str(path))
+            if not mime or not mime.startswith("image/"):
+                continue
+            try:
+                if path.stat().st_size > max_bytes:
+                    continue
+                payload = base64.b64encode(path.read_bytes()).decode("ascii")
+            except OSError:
+                continue
+            seen.add(relative)
+            blocks.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{payload}"},
+                }
+            )
+
+        return blocks if len(blocks) > 1 else user_message
+
     async def _agent_node(self, state: AgentState) -> dict[str, Any]:
         self._bind_tenant(state)
         writer = _writer()
@@ -276,7 +351,7 @@ class AgentRuntime:
         current_query = ""
         for message in reversed(messages):
             if message.get("role") == "user":
-                current_query = str(message.get("content") or "")
+                current_query = _message_text(message.get("content"))
                 break
         model_messages: list[dict[str, Any]] = [
             {
@@ -990,8 +1065,9 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         self,
         session_id: str,
         user_message: str,
-        max_iterations: int = 5,
+        max_iterations: int | None = None,
         *,
+        attachments: list[dict[str, Any]] | None = None,
         approval_mode: str = "human",
         tenant: tenancy.TenantContext | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
@@ -999,6 +1075,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
             session_id,
             user_message,
             max_iterations=max_iterations,
+            attachments=attachments,
             approval_mode=approval_mode,
             tenant=tenant,
         ):
@@ -1010,6 +1087,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         user_message: str,
         *,
         max_iterations: int | None = None,
+        attachments: list[dict[str, Any]] | None = None,
         approval_mode: str = "human",
         tenant: tenancy.TenantContext | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
@@ -1025,6 +1103,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
                 session_id,
                 user_message,
                 max_iterations=max_iterations,
+                attachments=attachments,
                 approval_mode=approval_mode,
                 tenant=tenant,
             ):
@@ -1038,12 +1117,16 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         user_message: str,
         *,
         max_iterations: int | None = None,
+        attachments: list[dict[str, Any]] | None = None,
         approval_mode: str = "human",
         tenant: tenancy.TenantContext | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         context = tenant or tenancy.get_context()
         database.ensure_session(
             session_id, owner_id=context.user_id, project_id=context.project_id
+        )
+        user_content = await asyncio.to_thread(
+            self._build_user_content, context, user_message, attachments
         )
         database.save_message(session_id, "user", user_message)
         database.maybe_auto_title(session_id, user_message)
@@ -1062,7 +1145,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         turn_id = uuid.uuid4().hex
         if values.get("messages"):
             input_state: dict[str, Any] = {
-                "messages": [{"role": "user", "content": user_message}],
+                "messages": [{"role": "user", "content": user_content}],
             }
             turn_start_thoughts = len(values.get("thoughts") or [])
             turn_start_records = len(values.get("tool_calls_record") or [])
@@ -1076,6 +1159,10 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
                     seed.append({"role": role, "content": content})
             if not seed:
                 seed = [{"role": "user", "content": user_message}]
+            for index in range(len(seed) - 1, -1, -1):
+                if seed[index].get("role") == "user" and seed[index].get("content") == user_message:
+                    seed[index]["content"] = user_content
+                    break
             input_state = {"messages": seed}
             turn_start_thoughts = 0
             turn_start_records = 0

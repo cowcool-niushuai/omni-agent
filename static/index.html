@@ -4185,7 +4185,8 @@
       try {
         await streamSSE('/api/chat/stream', {
           session_id: currentSessionId,
-          message: promptText
+          message: promptText,
+          attachments: attachmentFiles
         }, ctx);
       } catch (err) {
         console.error(err);

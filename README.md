@@ -542,9 +542,26 @@ POST /api/uploads
 
 Agent 会把附件内容视为不可信数据，需要时通过 `file_read`、`python_eval` 或专用解析工具读取。附件路径同样受当前项目工作区限制。
 
+### 图片理解
+
+当模型声明 `capabilities.vision=true`（或模型名称包含 `视觉` / `vision` / `gpt-4o` / `gpt-4.1` / `claude` / `gemini` / `qwen-vl`）时，图片附件会自动转成多模态内容块发送给模型：
+
+- OpenAI 兼容接口：`image_url` + `data:image/...;base64,...`
+- Anthropic：`image` + `source.base64`
+
+默认限制：
+
+```text
+最多 4 张图片
+单张图片最大 8MB
+```
+
+图片必须是工作区内的 `.png` / `.jpg` / `.jpeg` / `.webp` / `.gif`，路径经过工作区逃逸校验。数据库和 checkpoint 只保存文字与附件路径，不保存图片 base64。
+
+如果当前模型不支持视觉，图片仍会作为附件保存，Agent 只能读取文件元数据或通过工具处理，不会声称自己“看懂了图片”。
+
 当前限制：
 
-- 图片目前只作为附件保存；默认 DeepSeek 文本模型不支持看图，需要接入多模态模型和图片内容块才能做视觉分析
 - 不会自动 OCR 图片，也不会自动解析 PDF/Word 版式；需要 Agent 调用相应工具
 - 附件不会自动清理，长期使用建议定期清理 `.uploads`
 - 完全访问模式下附件路径可能指向工作区外，需自行确认安全
@@ -718,7 +735,11 @@ make check      # 全部检查
 | `MEMORY_ALWAYS_INCLUDE` | 固定注入的高重要度记忆数 | `3` |
 | `MEMORY_MAX_CONTENT_CHARS` | 单条记忆长度上限 | `8000` |
 | `KNOWLEDGE_MAX_CONTENT_CHARS` | 单篇知识文档长度上限 | `20000` |
-| `MAX_ITERATIONS` | 单轮最大推理步数 | `8` |
+| `MAX_ITERATIONS` | 单轮最大推理步数 | `20` |
+| `ATTACHMENT_MAX_BYTES` | 单个附件最大字节数 | `20971520` |
+| `ATTACHMENT_MAX_FILES` | 单次最多附件数 | `5` |
+| `VISION_MAX_IMAGES` | 单次最多发送给模型的图片数 | `4` |
+| `VISION_MAX_IMAGE_BYTES` | 单张视觉图片最大字节数 | `8388608` |
 | `SANDBOX_BACKEND` | `auto` / `bwrap` / `process` | `auto` |
 | `SANDBOX_NETWORK` | 沙箱是否允许网络 | `false` |
 | `COMMAND_POLICY_MODE` | `strict` / `permissive` | `strict` |
@@ -786,11 +807,11 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：162 passed
+- `pytest`：167 passed
 - `ruff`：All checks passed
 - `mypy`：Success，15 source files
 
-测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、MCP 配置校验/增删改/启停/测试/热重载、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护、密码哈希、登录与 CSRF、项目隔离、跨项目访问拒绝、viewer 只读、Token 作用域、审批请求项目隔离、最后一个管理员保护、工具参数契约与非法参数拦截、工具错误分类、幂等重试策略、计划规范化与验证规则、验证器修复循环、计划 API 与 UI、全访问模式转换、受保护路径与权限策略 API 往返、附件上传路径/文件名清洗/大小限制。
+测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、MCP 配置校验/增删改/启停/测试/热重载、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护、密码哈希、登录与 CSRF、项目隔离、跨项目访问拒绝、viewer 只读、Token 作用域、审批请求项目隔离、最后一个管理员保护、工具参数契约与非法参数拦截、工具错误分类、幂等重试策略、计划规范化与验证规则、验证器修复循环、计划 API 与 UI、全访问模式转换、受保护路径与权限策略 API 往返、附件上传路径/文件名清洗/大小限制、图片多模态内容块与 Anthropic 图片转换、默认推理步数上限。
 
 ---
 

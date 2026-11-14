@@ -706,6 +706,7 @@ async def api_upload_attachment(body: UploadRequest):
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    attachments: List[dict] = []
 
 
 async def _sse_events(events: AsyncIterator[dict]) -> AsyncIterator[str]:
@@ -737,7 +738,12 @@ async def api_chat_stream(body: ChatRequest):
     _guard_chat_session(body.session_id)
     ctx = _context()
     return _sse_response(
-        agent_core.run_react_stream(body.session_id, body.message, tenant=ctx)
+        agent_core.run_react_stream(
+            body.session_id,
+            body.message,
+            attachments=body.attachments,
+            tenant=ctx,
+        )
     )
 
 

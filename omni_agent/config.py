@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     cors_origins: str = ""
     log_level: str = "INFO"
     log_json: bool = False
-    max_iterations: int = 8
+    max_iterations: int = 20
 
     # Context compaction: token budget before old messages are summarized.
     context_max_tokens: int = 24_000
@@ -100,6 +100,8 @@ class Settings(BaseSettings):
     max_file_write_bytes: int = 10 * 1024 * 1024
     attachment_max_bytes: int = 20 * 1024 * 1024
     attachment_max_files: int = 5
+    vision_max_images: int = 4
+    vision_max_image_bytes: int = 8 * 1024 * 1024
 
     web_fetch_timeout_seconds: float = 10.0
     web_fetch_max_bytes: int = 2_000_000

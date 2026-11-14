@@ -27,8 +27,9 @@ class OmniAgentCore:
         self,
         session_id: str,
         user_message: str,
-        max_iterations: int = 5,
+        max_iterations: int | None = None,
         *,
+        attachments: list[dict[str, Any]] | None = None,
         approval_mode: str = "human",
         tenant: tenancy.TenantContext | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
@@ -36,6 +37,7 @@ class OmniAgentCore:
             session_id,
             user_message,
             max_iterations=max_iterations,
+            attachments=attachments,
             approval_mode=approval_mode,
             tenant=tenant,
         ):
