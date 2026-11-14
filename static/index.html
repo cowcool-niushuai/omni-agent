@@ -2890,12 +2890,6 @@
     }
 
     async function setPermissionMode(mode) {
-      if (mode === 'full_access') {
-        const ok = window.confirm(
-          '完全访问 (Full Access) 将关闭沙箱和逐步审批，允许 Agent 读写本机文件、运行系统命令并联网。\n\n仅在可信项目和受控设备上使用。确定开启吗？'
-        );
-        if (!ok) return;
-      }
       try {
         const policy = await gitJson('/api/security/policy', {
           method: 'PATCH',
