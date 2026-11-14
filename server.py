@@ -668,6 +668,13 @@ async def api_get_session_plan(session_id: str):
     _require_session(session_id)
     return await agent_core.get_plan(session_id)
 
+
+@app.post("/api/sessions/{session_id}/compact")
+async def api_compact_session(session_id: str):
+    _require_session(session_id)
+    _require_write()
+    return await agent_core.compact_session(session_id)
+
 # 3. Realtime SSE Streaming Chat Endpoint
 class ChatRequest(BaseModel):
     session_id: str

@@ -1323,6 +1323,7 @@
       { name: 'clear', label: '清空对话', desc: '清空当前会话消息，保留会话', icon: 'eraser' },
       { name: 'export', label: '导出对话', desc: '下载当前对话 Markdown', icon: 'download' },
       { name: 'context', label: '上下文用量', desc: '查看当前会话的 Token 与成本', icon: 'gauge' },
+      { name: 'compact', label: '压缩上下文', desc: '总结较早对话，减少上下文占用', icon: 'archive' },
       { name: 'stats', label: '数据统计', desc: '查看全局 Token、成本与运行数据', icon: 'bar-chart-3' },
       { name: 'model', label: '切换模型', desc: '选择模型或配置 API Key', icon: 'cpu' },
       { name: 'settings', label: '打开设置', desc: '打开设置面板', icon: 'settings-2' },
@@ -1366,8 +1367,8 @@
       menu.classList.remove('hidden');
       list.innerHTML = slashMatches.map((cmd, index) => `
         <button type="button"
-          onclick="runSlashCommand('${cmd.name}')"
-          onmouseenter="setSlashIndex(${index})"
+          onmousedown="event.preventDefault()"
+          onclick="event.stopPropagation(); runSlashCommand('${cmd.name}')"
           class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left transition-colors ${index === slashIndex ? 'bg-[#EDF3F1]' : 'hover:bg-[#F7FAF9]'}">
           <span class="w-7 h-7 rounded-lg bg-[#F5F8F7] text-[#267F68] flex items-center justify-center shrink-0">
             <i data-lucide="${cmd.icon}" class="w-3.5 h-3.5"></i>
@@ -1422,6 +1423,7 @@
         if (popover && popover.classList.contains('hidden')) toggleStatsPanel();
         return;
       }
+      if (name === 'compact') return compactCurrentSession();
       const sectionMap = {
         stats: 'stats', memory: 'memory', mcp: 'mcp', git: 'git',
         audit: 'audit', schedules: 'schedules', team: 'team',
@@ -1439,6 +1441,24 @@
           updateSlashMenu();
           input.focus();
         }
+      }
+    }
+
+    async function compactCurrentSession() {
+      if (!currentSessionId || !savedSessionIds.has(currentSessionId)) {
+        toast('当前会话还没有可压缩的历史，先发送一条消息。', 'error');
+        return;
+      }
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(currentSessionId)}/compact`, {
+          method: 'POST',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || '上下文压缩失败');
+        toast(data.message || '上下文已压缩', data.dropped ? 'success' : undefined);
+        await refreshComposerUsage();
+      } catch (err) {
+        toast(err.message || '上下文压缩失败', 'error');
       }
     }
 

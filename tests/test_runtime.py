@@ -329,6 +329,29 @@ async def test_checkpoint_survives_runtime_restart(isolated_db: Any) -> None:
     assert state.values["final_answer"] == "持久化回复"
 
 
+async def test_manual_compact_persists_summary(isolated_db: Any) -> None:
+    client = FakeClient([])
+    runtime = make_runtime(isolated_db, client)
+    try:
+        graph = await runtime._get_graph()
+        config = {"configurable": {"thread_id": "compact-session"}}
+        await graph.aupdate_state(
+            config,
+            {"messages": [{"role": "user", "content": "x" * 300} for _ in range(20)]},
+        )
+
+        result = await runtime.compact_session("compact-session", keep_last=4)
+        state = await graph.aget_state(config)
+    finally:
+        await runtime.close()
+
+    assert result["dropped"] == 16
+    assert result["summary_upto"] == 16
+    assert state.values["summary"] == "压缩摘要"
+    assert state.values["summary_upto"] == 16
+    assert client.calls and client.calls[0]["stream"] is False
+
+
 async def test_compaction_drops_old_messages(isolated_db: Any) -> None:
     messages = [{"role": "user", "content": "x" * 300} for _ in range(20)]
     client = FakeClient([])

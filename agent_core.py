@@ -58,6 +58,11 @@ class OmniAgentCore:
     async def get_plan(self, session_id: str) -> dict[str, Any]:
         return await self.runtime.get_plan(session_id)
 
+    async def compact_session(
+        self, session_id: str, *, keep_last: int | None = None
+    ) -> dict[str, Any]:
+        return await self.runtime.compact_session(session_id, keep_last=keep_last)
+
     async def delete_thread(self, session_id: str) -> None:
         await self.runtime.delete_thread(session_id)
 

@@ -920,6 +920,50 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         database.update_subagent_task(sub_id, "COMPLETED", final_report)
         return f"【子智能体 ({role}) 汇报】\n{final_report}"
 
+    async def compact_session(
+        self, session_id: str, *, keep_last: int | None = None
+    ) -> dict[str, Any]:
+        """Summarize older messages on demand and persist the new summary."""
+        graph = await self._get_graph()
+        config = {"configurable": {"thread_id": session_id}}
+        state = await graph.aget_state(config)
+        values = state.values or {}
+        messages = list(values.get("messages") or [])
+        if not messages:
+            return {
+                "dropped": 0,
+                "total_messages": 0,
+                "summary_chars": 0,
+                "message": "当前会话没有可压缩的历史消息。",
+            }
+        client, model_name = self._client_factory()
+        summary, summary_upto, dropped = await maybe_compact(
+            messages=messages,
+            summary=values.get("summary"),
+            summary_upto=int(values.get("summary_upto", 0)),
+            client=client,
+            model=model_name,
+            max_tokens=0,
+            keep_last=int(keep_last or self._settings.context_keep_last),
+        )
+        if dropped:
+            await graph.aupdate_state(
+                config,
+                {"summary": summary, "summary_upto": summary_upto},
+            )
+        message = (
+            f"已压缩 {dropped} 条较早消息。"
+            if dropped
+            else "当前没有需要压缩的早期消息，已保留最近对话。"
+        )
+        return {
+            "dropped": dropped,
+            "total_messages": len(messages),
+            "summary_chars": len(summary or ""),
+            "summary_upto": summary_upto,
+            "message": message,
+        }
+
     async def get_plan(self, session_id: str) -> dict[str, Any]:
         """Return the durable plan for a session, if any."""
         graph = await self._get_graph()
