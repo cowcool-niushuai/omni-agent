@@ -27,9 +27,14 @@ class OmniAgentCore:
         session_id: str,
         user_message: str,
         max_iterations: int = 5,
+        *,
+        approval_mode: str = "human",
     ) -> AsyncGenerator[dict[str, Any], None]:
         async for event in self.runtime.run_react_stream(
-            session_id, user_message, max_iterations=max_iterations
+            session_id,
+            user_message,
+            max_iterations=max_iterations,
+            approval_mode=approval_mode,
         ):
             yield event
 

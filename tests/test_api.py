@@ -143,3 +143,51 @@ def test_knowledge_crud_and_search() -> None:
         assert deleted.status_code == 200
 
     assert client.delete(f"/api/knowledge/{doc_id}").status_code == 404
+
+
+def test_schedule_crud_and_validation() -> None:
+    name = f"测试定时任务 {uuid.uuid4().hex[:8]}"
+    created = client.post(
+        "/api/schedules",
+        json={
+            "name": name,
+            "prompt": "检查工作区并总结变化。",
+            "interval_seconds": 120,
+        },
+    )
+    assert created.status_code == 200
+    task = created.json()
+    task_id = task["id"]
+    assert task["enabled"] is True
+    assert task["session_id"].startswith("sched_")
+
+    try:
+        listed = client.get("/api/schedules")
+        assert listed.status_code == 200
+        assert any(item["id"] == task_id for item in listed.json())
+
+        fetched = client.get(f"/api/schedules/{task_id}")
+        assert fetched.status_code == 200
+        assert fetched.json()["name"] == name
+
+        updated = client.patch(
+            f"/api/schedules/{task_id}",
+            json={"name": name + " v2", "enabled": False},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["enabled"] is False
+        assert updated.json()["name"].endswith(" v2")
+
+        too_fast = client.post(
+            "/api/schedules",
+            json={"name": "x", "prompt": "x", "interval_seconds": 1},
+        )
+        assert too_fast.status_code == 400
+
+        empty = client.patch(f"/api/schedules/{task_id}", json={"prompt": ""})
+        assert empty.status_code == 400
+    finally:
+        deleted = client.delete(f"/api/schedules/{task_id}")
+        assert deleted.status_code == 200
+
+    assert client.delete(f"/api/schedules/{task_id}").status_code == 404

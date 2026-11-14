@@ -79,6 +79,18 @@ class Settings(BaseSettings):
     mcp_request_timeout_seconds: float = 15.0
     audit_enabled: bool = True
 
+    # Phase 3: unattended scheduled tasks.
+    scheduler_enabled: bool = True
+    scheduler_poll_seconds: float = 15.0
+    scheduler_task_timeout_seconds: float = 600.0
+    scheduler_min_interval_seconds: int = 60
+    scheduler_max_interval_seconds: int = 604_800
+    scheduler_name_max_chars: int = 120
+    scheduler_prompt_max_chars: int = 20_000
+    scheduler_result_max_chars: int = 4_000
+    scheduler_max_due_per_poll: int = 5
+    scheduler_max_tasks: int = 100
+
     @property
     def cors_origin_list(self) -> list[str]:
         origins = [item.strip() for item in self.cors_origins.split(",") if item.strip()]

@@ -49,6 +49,7 @@ class AgentState(TypedDict, total=False):
     summary_upto: int
     pending_tool_calls: list[dict[str, Any]]
     approval_action: str | None
+    approval_mode: str
     iteration: int
     max_iterations: int
     thoughts: Annotated[list[str], operator.add]
@@ -198,7 +199,13 @@ class AgentRuntime:
                 current_query = str(message.get("content") or "")
                 break
         model_messages: list[dict[str, Any]] = [
-            {"role": "system", "content": prompts.build_system_prompt(current_query)}
+            {
+                "role": "system",
+                "content": prompts.build_system_prompt(
+                    current_query,
+                    str(state.get("approval_mode") or "human"),
+                ),
+            }
         ]
         if summary:
             model_messages.append(
@@ -285,11 +292,12 @@ class AgentRuntime:
         calls = state.get("pending_tool_calls") or []
         if not calls:
             return "end"
+        auto_reject = str(state.get("approval_mode") or "human") == "auto_reject"
         for call in calls:
             risk, _ = permission.classify_permission(
                 str(call.get("name", "")), call.get("arguments") or {}
             )
-            if risk == permission.PermissionRisk.ASK_USER:
+            if risk == permission.PermissionRisk.ASK_USER and not auto_reject:
                 return "approval"
         return "tools"
 
@@ -352,6 +360,7 @@ class AgentRuntime:
         session_id = str(state.get("session_id", ""))
         turn_id = str(state.get("turn_id", ""))
         action = str(state.get("approval_action") or "REJECT")
+        auto_reject = str(state.get("approval_mode") or "human") == "auto_reject"
         calls = state.get("pending_tool_calls") or []
         writer = _writer()
         settings = self._settings
@@ -377,7 +386,8 @@ class AgentRuntime:
                     risk == permission.PermissionRisk.ASK_USER
                     and action != "APPROVE"
                 ):
-                    output = f"[用户拒绝] 该高危操作未获批准：{reason}"
+                    prefix = "自动拒绝" if auto_reject else "用户拒绝"
+                    output = f"[{prefix}] 该高危操作未获批准：{reason}"
                     status = "BLOCKED"
                     decision = "REJECTED"
                 else:
@@ -682,9 +692,14 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         session_id: str,
         user_message: str,
         max_iterations: int = 5,
+        *,
+        approval_mode: str = "human",
     ) -> AsyncGenerator[dict[str, Any], None]:
         async for event in self.run_stream(
-            session_id, user_message, max_iterations=max_iterations
+            session_id,
+            user_message,
+            max_iterations=max_iterations,
+            approval_mode=approval_mode,
         ):
             yield event
 
@@ -694,6 +709,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         user_message: str,
         *,
         max_iterations: int | None = None,
+        approval_mode: str = "human",
     ) -> AsyncGenerator[dict[str, Any], None]:
         if session_id in self._active_sessions:
             yield {
@@ -704,7 +720,10 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         self._active_sessions.add(session_id)
         try:
             async for event in self._run_stream_inner(
-                session_id, user_message, max_iterations=max_iterations
+                session_id,
+                user_message,
+                max_iterations=max_iterations,
+                approval_mode=approval_mode,
             ):
                 yield event
         finally:
@@ -716,6 +735,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
         user_message: str,
         *,
         max_iterations: int | None = None,
+        approval_mode: str = "human",
     ) -> AsyncGenerator[dict[str, Any], None]:
         database.ensure_session(session_id)
         database.save_message(session_id, "user", user_message)
@@ -767,6 +787,7 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
                 ),
                 "pending_tool_calls": [],
                 "approval_action": None,
+                "approval_mode": "auto_reject" if approval_mode == "auto_reject" else "human",
                 "final_answer": None,
                 "error": None,
                 "turn_id": turn_id,

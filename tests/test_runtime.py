@@ -207,6 +207,41 @@ async def test_rejected_approval_does_not_execute_tool(
     assert permission.get_request_status(tool_request_id) == "REJECTED"
 
 
+async def test_auto_reject_mode_does_not_interrupt(
+    isolated_db: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = FakeClient(
+        [
+            [tool_chunk("call_1", "bash_run", json.dumps({"command": "rm -rf /tmp/x"}))],
+            [text_chunk("已避开高危操作")],
+        ]
+    )
+    executed: list[str] = []
+    monkeypatch.setattr(
+        tools,
+        "dispatch_tool",
+        lambda name, arguments: executed.append(name) or "不应执行",
+    )
+    runtime = make_runtime(isolated_db, client)
+    try:
+        events = [
+            event
+            async for event in runtime.run_stream(
+                "s1", "执行危险命令", approval_mode="auto_reject"
+            )
+        ]
+    finally:
+        await runtime.close()
+
+    assert executed == []
+    assert not any(event["type"] == "permission_intercept" for event in events)
+    assert any(
+        event["type"] == "tool_result" and "自动拒绝" in event["result"]
+        for event in events
+    )
+    assert events[-1]["type"] == "done"
+
+
 async def test_checkpoint_survives_runtime_restart(isolated_db: Any) -> None:
     client = FakeClient([[text_chunk("持久化回复")]])
     runtime = make_runtime(isolated_db, client)

@@ -4,7 +4,7 @@ from mcp_manager import mcp_manager
 from omni_agent.config import get_settings
 
 
-def build_system_prompt(user_query: str = "") -> str:
+def build_system_prompt(user_query: str = "", approval_mode: str = "human") -> str:
     settings = get_settings()
     # 1. Fetch available skills
     skills = skills_manager.list_skills()
@@ -73,5 +73,11 @@ def build_system_prompt(user_query: str = "") -> str:
 - **ReAct 思考-行动模式**：在调用工具前，务必在 Thought 中清晰规划你的目标和参数；在工具执行返回后，根据实际结果再决定下一步。
 - **验证原则**：编写完代码或生成文件后，建议主动使用 `bash_run` 运行它，确保无语法报错，再将成功的果实呈现给用户。
 - **回复风格**：专业、简洁、极具工程师范儿，用清晰的 Markdown 格式输出。
+"""
+    if approval_mode == "auto_reject":
+        prompt += """
+### 无人值守模式 (Unattended Mode)
+本次运行由定时任务触发，没有人类可以实时审批。任何被判定为 `ASK_USER` 的高危操作都会被系统自动拒绝。
+请优先使用只读工具、工作区文件操作和安全命令完成目标；如果必须执行高危操作，请说明原因并给出可供人工执行的替代步骤，不要反复重试。
 """
     return prompt

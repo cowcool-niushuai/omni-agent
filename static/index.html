@@ -101,6 +101,10 @@
           <i data-lucide="shield-check" class="w-4 h-4"></i>
           <span>审计记录</span>
         </button>
+        <button onclick="switchTab('schedules')" id="nav-schedules" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-[#7A8C87] hover:text-[#15201D] hover:bg-[#F2F6F5] transition-all">
+          <i data-lucide="calendar-clock" class="w-4 h-4"></i>
+          <span>定时任务</span>
+        </button>
         <button onclick="switchTab('memory')" id="nav-memory" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-[#7A8C87] hover:text-[#15201D] hover:bg-[#F2F6F5] transition-all">
           <i data-lucide="database" class="w-4 h-4"></i>
           <span>记忆中枢</span>
@@ -383,6 +387,41 @@
       </div>
     </div>
 
+    <!-- 7. SCHEDULED TASKS TAB -->
+    <div id="tab-schedules" class="hidden flex-1 flex flex-col h-full p-6 overflow-y-auto">
+      <div class="max-w-5xl mx-auto w-full space-y-5">
+        <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h2 class="text-base font-bold text-[#15201D]">定时任务</h2>
+              <p class="text-[11px] text-[#7A8C87] mt-0.5">按固定间隔无人值守运行；高危操作会被自动拒绝，并保留会话与审计记录。</p>
+            </div>
+            <button onclick="loadSchedules()" class="text-xs text-[#7A8C87] hover:text-[#15201D] flex items-center gap-1">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> 刷新
+            </button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
+            <input id="schedule-name" placeholder="任务名称，例如 每日日志巡检" class="md:col-span-2 bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+            <div class="flex items-center gap-2">
+              <input id="schedule-interval" type="number" min="60" step="60" value="3600" title="运行间隔（秒）" class="w-full bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+              <span class="text-[10px] text-[#7A8C87] whitespace-nowrap">秒/次</span>
+            </div>
+          </div>
+          <textarea id="schedule-prompt" rows="3" placeholder="每次触发时发给 Agent 的完整提示词…" class="w-full bg-[#F5F8F7] border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D] resize-y"></textarea>
+          <div class="flex items-center justify-end gap-2 mt-2">
+            <button onclick="resetScheduleForm()" class="px-3 py-2 rounded-xl border border-[#E3ECE9] text-xs text-[#7A8C87] hover:bg-[#F2F6F5]">清空</button>
+            <button onclick="saveSchedule()" class="px-3.5 py-2 rounded-xl bg-[#15201D] text-white text-xs font-semibold">保存定时任务</button>
+          </div>
+        </section>
+
+        <div class="flex items-center justify-between">
+          <span id="schedule-count" class="text-[10px] font-mono text-[#7A8C87]"></span>
+          <span class="text-[10px] text-[#7A8C87]">无人值守模式：ASK_USER 自动拒绝</span>
+        </div>
+        <div id="schedules-container" class="space-y-2"></div>
+      </div>
+    </div>
+
   </main>
 
   <!-- 模态框：新增技能 -->
@@ -450,8 +489,10 @@
     let pendingPermission = false;
     let memoryCache = {};
     let knowledgeCache = {};
+    let scheduleCache = {};
     let editingMemoryId = null;
     let editingKnowledgeId = null;
+    let editingScheduleId = null;
 
     document.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
@@ -462,6 +503,7 @@
       loadWorkspaceFiles();
       loadMemories();
       loadKnowledge();
+      loadSchedules();
       loadModels();
     });
 
@@ -615,7 +657,7 @@
     }
 
     function switchTab(tab) {
-      ['chat', 'skills', 'mcp', 'audit', 'workspace', 'memory'].forEach(t => {
+      ['chat', 'skills', 'mcp', 'audit', 'schedules', 'workspace', 'memory'].forEach(t => {
         const el = document.getElementById(`tab-${t}`);
         const btn = document.getElementById(`nav-${t}`);
         if (t === tab) {
@@ -627,6 +669,7 @@
         }
       });
       if (tab === 'audit') loadAudit();
+      if (tab === 'schedules') loadSchedules();
       if (tab === 'memory') {
         loadMemories();
         loadKnowledge();
@@ -1358,6 +1401,168 @@
 
     function searchKnowledge() {
       loadKnowledge(document.getElementById('knowledge-search').value.trim());
+    }
+
+    function formatScheduleTime(value) {
+      if (!value) return '—';
+      const normalized = String(value).replace(' ', 'T');
+      const date = new Date(normalized.endsWith('Z') ? normalized : normalized + 'Z');
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleString('zh-CN', {hour12: false});
+    }
+
+    function formatInterval(seconds) {
+      const value = Number(seconds || 0);
+      if (value % 86400 === 0) return `${value / 86400} 天`;
+      if (value % 3600 === 0) return `${value / 3600} 小时`;
+      if (value % 60 === 0) return `${value / 60} 分钟`;
+      return `${value} 秒`;
+    }
+
+    function scheduleStatusColor(status) {
+      return {
+        OK: '#267F68',
+        RUNNING: '#3975B9',
+        BLOCKED: '#C98B4E',
+        ERROR: '#B4544E',
+        INTERRUPTED: '#7A8C87',
+        NEVER: '#7A8C87'
+      }[status] || '#7A8C87';
+    }
+
+    async function loadSchedules() {
+      try {
+        const res = await fetch('/api/schedules');
+        if (!res.ok) throw new Error(res.statusText);
+        const list = await res.json();
+        scheduleCache = {};
+        const box = document.getElementById('schedules-container');
+        document.getElementById('schedule-count').innerText = `${list.length} 个任务`;
+        box.innerHTML = '';
+        if (!list.length) {
+          box.innerHTML = '<div class="text-xs text-[#7A8C87] p-2">暂无定时任务。创建一个后，服务会按间隔自动运行。</div>';
+          return;
+        }
+        list.forEach(s => {
+          scheduleCache[s.id] = s;
+          const status = s.last_status || 'NEVER';
+          const statusColor = scheduleStatusColor(status);
+          const resultHtml = s.last_result
+            ? `<details class="mt-2 border-t border-[#F0F5F3] pt-2"><summary class="text-[10px] text-[#7A8C87] cursor-pointer">上次结果</summary><div class="mt-1.5 text-[11px] text-[#4A5568] whitespace-pre-wrap font-mono">${escapeHtml(s.last_result)}</div></details>`
+            : '';
+          const c = document.createElement('div');
+          c.className = "bg-[#FFFFFF] border border-[#E3ECE9] rounded-xl p-3.5 text-xs shadow-sm";
+          c.innerHTML = `
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-bold text-[#15201D] text-xs">${escapeHtml(s.name)}</span>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded ${s.enabled ? 'bg-[#E8F7F2] text-[#267F68]' : 'bg-[#F0F4F2] text-[#7A8C87]'}">${s.enabled ? '启用' : '停用'}</span>
+                  <span class="text-[9px] font-semibold" style="color:${statusColor}">${escapeHtml(status)}</span>
+                </div>
+                <div class="text-[11px] text-[#4A5568] mt-1 whitespace-pre-wrap line-clamp-2">${escapeHtml(s.prompt)}</div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <button onclick="runSchedule('${s.id}')" class="px-2.5 py-1 rounded-lg bg-[#15201D] text-white text-[10px] font-semibold">运行</button>
+                <button onclick="toggleSchedule('${s.id}', ${s.enabled ? 'false' : 'true'})" class="px-2 py-1 rounded-lg border border-[#E3ECE9] text-[10px] text-[#4A5568] hover:bg-[#F2F6F5]">${s.enabled ? '停用' : '启用'}</button>
+                <button onclick="editSchedule('${s.id}')" class="text-[10px] text-[#7A8C87] hover:text-[#15201D]">编辑</button>
+                <button onclick="deleteSchedule('${s.id}')" class="text-[10px] text-[#B4544E] hover:text-[#8F3F3A]">删除</button>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2 text-[10px] text-[#7A8C87] font-mono">
+              <div>间隔：${formatInterval(s.interval_seconds)}</div>
+              <div>下次：${formatScheduleTime(s.next_run_at)}</div>
+              <div>运行：${s.run_count || 0} 次${s.last_run_at ? ' · ' + formatScheduleTime(s.last_run_at) : ''}</div>
+            </div>
+            ${resultHtml}
+          `;
+          box.appendChild(c);
+        });
+        lucide.createIcons();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function resetScheduleForm() {
+      editingScheduleId = null;
+      document.getElementById('schedule-name').value = '';
+      document.getElementById('schedule-interval').value = '3600';
+      document.getElementById('schedule-prompt').value = '';
+    }
+
+    function editSchedule(id) {
+      const s = scheduleCache[id];
+      if (!s) return;
+      editingScheduleId = id;
+      document.getElementById('schedule-name').value = s.name;
+      document.getElementById('schedule-interval').value = s.interval_seconds;
+      document.getElementById('schedule-prompt').value = s.prompt;
+      document.getElementById('schedule-name').focus();
+    }
+
+    async function saveSchedule() {
+      const payload = {
+        name: document.getElementById('schedule-name').value.trim(),
+        prompt: document.getElementById('schedule-prompt').value.trim(),
+        interval_seconds: Number(document.getElementById('schedule-interval').value || 3600)
+      };
+      if (!payload.name || !payload.prompt) {
+        alert('请填写任务名称和提示词');
+        return;
+      }
+      try {
+        const res = await fetch(
+          editingScheduleId ? `/api/schedules/${editingScheduleId}` : '/api/schedules',
+          {
+            method: editingScheduleId ? 'PATCH' : 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+          }
+        );
+        if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+        resetScheduleForm();
+        loadSchedules();
+      } catch (e) {
+        alert('保存定时任务失败: ' + e.message);
+      }
+    }
+
+    async function deleteSchedule(id) {
+      if (!confirm('确定删除这个定时任务？已有会话与审计记录会保留。')) return;
+      try {
+        const res = await fetch(`/api/schedules/${id}`, {method: 'DELETE'});
+        if (!res.ok && res.status !== 404) throw new Error(res.statusText);
+        if (editingScheduleId === id) resetScheduleForm();
+        loadSchedules();
+      } catch (e) {
+        alert('删除定时任务失败: ' + e.message);
+      }
+    }
+
+    async function toggleSchedule(id, enabled) {
+      try {
+        const res = await fetch(`/api/schedules/${id}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({enabled})
+        });
+        if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+        loadSchedules();
+      } catch (e) {
+        alert('更新定时任务失败: ' + e.message);
+      }
+    }
+
+    async function runSchedule(id) {
+      try {
+        const res = await fetch(`/api/schedules/${id}/run`, {method: 'POST'});
+        if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+        setTimeout(loadSchedules, 1200);
+        setTimeout(loadSchedules, 5000);
+      } catch (e) {
+        alert('启动定时任务失败: ' + e.message);
+      }
     }
 
     async function loadAudit() {

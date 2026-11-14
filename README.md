@@ -5,7 +5,7 @@
 
 OmniAgent 是一个**单机单用户**的通用智能体应用：它不只回答问题，还能在工作区里读写文件、执行命令、运行 Python、调用 MCP 工具，并在高危操作前暂停，等待你批准后继续执行。
 
-项目当前处于 **Phase 3（能力扩展）进行中** 的状态：Phase 2 的沙箱、命令策略、SSRF 与审计已完成，Phase 3 的本地 Memory/RAG 已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
+项目当前处于 **Phase 3（能力扩展）进行中** 的状态：Phase 2 的沙箱、命令策略、SSRF 与审计已完成，Phase 3 的本地 Memory/RAG 与定时任务已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
 
 ---
 
@@ -115,6 +115,19 @@ Web 控制台新增“审计记录”页，也可以调用 `GET /api/audit`、`G
 
 记忆与知识库都存放在本地 SQLite（`omni_agent.db`）。记忆写入走统一权限分类：`memory_search` 只读放行，`memory_save` / `knowledge_add` 作为本地安全写入自动执行并进入审计日志。
 
+### 10. 定时任务与无人值守执行
+
+定时任务复用同一套 LangGraph 运行时、工具策略、会话历史与审计表：
+
+- `scheduled_tasks` 表保存名称、提示词、间隔、启停状态、下次运行时间、上次结果
+- 服务内的单 worker 调度器按 `SCHEDULER_POLL_SECONDS` 轮询到期任务
+- 每次运行使用独立会话 `sched_<task_id>`，结果可在 Web 控制台回溯
+- **无人值守模式**：任何被判定为 `ASK_USER` 的高危工具调用都会被自动拒绝，不会留下悬挂审批；模型会收到拒绝结果并尝试安全替代方案
+- 单次运行超时、结果长度、任务总数、最小/最大间隔均可配置
+- 服务重启时，遗留的 `RUNNING` 状态会被标记为 `INTERRUPTED`
+- Web 控制台“定时任务”页支持创建、编辑、启停、立即运行、删除和查看上次结果
+- REST API：`GET/POST /api/schedules`、`GET/PATCH/DELETE /api/schedules/{id}`、`POST /api/schedules/{id}/run`
+
 ---
 
 ## 架构
@@ -169,7 +182,8 @@ omni-agent/
 ├── tools.py                   # 原生工具与 MCP 工具分发
 ├── prompts.py                 # 动态系统提示词（稳定+相关记忆注入）
 ├── retrieval.py               # BM25 + 中英文混合分词（记忆/知识库）
-├── database.py                # SQLite 持久化（含 tool_audit 表）
+├── scheduler.py               # 定时任务调度器（无人值守 auto_reject）
+├── database.py                # SQLite 持久化（含 tool_audit / scheduled_tasks）
 ├── model_manager.py           # 多 provider 模型管理（密钥只从环境变量读取）
 ├── mcp_manager.py             # MCP stdio 客户端（超时/重连/并发锁）
 ├── skills_manager.py          # Skills 扫描与写入
@@ -254,6 +268,11 @@ make check      # 全部检查
 | `ALLOW_PRIVATE_NETWORK` | 是否允许抓取内网地址 | `false` |
 | `MCP_REQUEST_TIMEOUT_SECONDS` | MCP 请求超时 | `15` |
 | `AUDIT_ENABLED` | 是否写入工具审计 | `true` |
+| `SCHEDULER_ENABLED` | 是否启动定时任务调度器 | `true` |
+| `SCHEDULER_POLL_SECONDS` | 调度器轮询间隔 | `15` |
+| `SCHEDULER_TASK_TIMEOUT_SECONDS` | 单次定时任务超时 | `600` |
+| `SCHEDULER_MIN_INTERVAL_SECONDS` | 最小运行间隔 | `60` |
+| `SCHEDULER_MAX_TASKS` | 任务数量上限 | `100` |
 
 完整列表见 `.env.example`。模型 provider 与模型列表在 `model_config.json` 中管理；**API Key 不会写入该文件**，只从环境变量读取。可参考 `model_config.example.json`。
 
@@ -284,11 +303,11 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：79 passed
+- `pytest`：85 passed
 - `ruff`：All checks passed
 - `mypy`：Success，12 source files
 
-测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回。
+测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复。
 
 ---
 
@@ -299,7 +318,7 @@ uv run mypy
 | Phase 0 | ✅ 完成 | 安全止血与工程底座：路径安全、密钥治理、日志、测试、CI |
 | Phase 1 | ✅ 完成 | LangGraph 内核：真流式、审批恢复、checkpoint、上下文压缩、并行工具、子代理 |
 | Phase 2 | ✅ 完成 | 沙箱与工具策略：bubblewrap/进程隔离、命令白名单、SSRF、资源配额、审计 |
-| Phase 3 | 🚧 进行中 | 能力扩展：Memory/RAG（✅ 本地 BM25 + 记忆/知识 CRUD + UI）、官方 MCP SDK、Skills、定时任务、浏览器 |
+| Phase 3 | 🚧 进行中 | 能力扩展：Memory/RAG（✅ 本地 BM25 + 记忆/知识 CRUD + UI）、定时任务（✅ 无人值守 + Web/API）、官方 MCP SDK、Skills、浏览器 |
 | Phase 4 | 计划中 | 单机交付：本地数据目录、密钥加密、桌面壳/安装包、自动更新、可观测性 |
 | Phase 5 | 计划中 | 开源发布：LICENSE、文档、示例、CI Release |
 

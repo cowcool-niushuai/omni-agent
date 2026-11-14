@@ -23,6 +23,7 @@ from model_manager import model_manager
 from omni_agent.config import get_settings
 from omni_agent.logging_config import configure_logging
 from omni_agent.security import PathSecurityError, safe_join
+from scheduler import scheduler
 
 settings = get_settings()
 configure_logging(settings)
@@ -35,10 +36,12 @@ log = structlog.get_logger("omni.http")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await agent_core.initialize()
+    await scheduler.start()
     log.info("agent_runtime_ready")
     try:
         yield
     finally:
+        await scheduler.stop()
         await agent_core.close()
         mcp_manager.stop_all()
         log.info("agent_runtime_closed")
@@ -98,6 +101,8 @@ async def health():
         "environment": settings.environment,
         "mcp_servers": len(mcp_manager.clients),
         "skills_count": len(skills_manager.list_skills()),
+        "scheduler_running": scheduler.running,
+        "scheduled_task_active": scheduler.active_task_id,
     }
 
 # 2. Sessions API
@@ -471,6 +476,154 @@ async def api_delete_knowledge(doc_id: int):
     if not database.delete_knowledge(doc_id):
         raise HTTPException(status_code=404, detail="知识文档不存在")
     return {"deleted": True, "id": doc_id}
+
+# 9c. Scheduled task API (Phase 3)
+class ScheduleCreateRequest(BaseModel):
+    name: str
+    prompt: str
+    interval_seconds: int = 3600
+    enabled: bool = True
+
+
+class ScheduleUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    prompt: Optional[str] = None
+    interval_seconds: Optional[int] = None
+    enabled: Optional[bool] = None
+
+
+def _validate_schedule(name: str, prompt: str, interval_seconds: int) -> tuple[str, str, int]:
+    name = name.strip()
+    prompt = prompt.strip()
+    if not name or not prompt:
+        raise HTTPException(status_code=400, detail="定时任务的名称和提示词不能为空")
+    if len(name) > settings.scheduler_name_max_chars:
+        raise HTTPException(
+            status_code=400,
+            detail=f"定时任务名称过长（上限 {settings.scheduler_name_max_chars} 字符）",
+        )
+    if len(prompt) > settings.scheduler_prompt_max_chars:
+        raise HTTPException(
+            status_code=400,
+            detail=f"定时任务提示词过长（上限 {settings.scheduler_prompt_max_chars} 字符）",
+        )
+    if not (
+        settings.scheduler_min_interval_seconds
+        <= int(interval_seconds)
+        <= settings.scheduler_max_interval_seconds
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "定时间隔必须在 "
+                f"{settings.scheduler_min_interval_seconds} 到 "
+                f"{settings.scheduler_max_interval_seconds} 秒之间"
+            ),
+        )
+    return name, prompt, int(interval_seconds)
+
+
+@app.get("/api/schedules")
+async def api_list_schedules():
+    return database.list_scheduled_tasks()
+
+
+@app.post("/api/schedules")
+async def api_create_schedule(body: ScheduleCreateRequest):
+    existing = database.list_scheduled_tasks()
+    if len(existing) >= settings.scheduler_max_tasks:
+        raise HTTPException(
+            status_code=400,
+            detail=f"定时任务数量已达上限（{settings.scheduler_max_tasks}）",
+        )
+    name, prompt, interval = _validate_schedule(
+        body.name, body.prompt, body.interval_seconds
+    )
+    try:
+        return database.create_scheduled_task(name, prompt, interval, body.enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.get("/api/schedules/{task_id}")
+async def api_get_schedule(task_id: str):
+    task = database.get_scheduled_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="定时任务不存在")
+    return task
+
+
+@app.patch("/api/schedules/{task_id}")
+async def api_update_schedule(task_id: str, body: ScheduleUpdateRequest):
+    current = database.get_scheduled_task(task_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="定时任务不存在")
+    updates = {
+        key: value
+        for key, value in body.model_dump(exclude_unset=True).items()
+        if value is not None
+    }
+    if not updates:
+        return current
+    if "name" in updates:
+        updates["name"] = str(updates["name"]).strip()
+        if not updates["name"]:
+            raise HTTPException(status_code=400, detail="定时任务的名称不能为空")
+        if len(updates["name"]) > settings.scheduler_name_max_chars:
+            raise HTTPException(
+                status_code=400,
+                detail=f"定时任务名称过长（上限 {settings.scheduler_name_max_chars} 字符）",
+            )
+    if "prompt" in updates:
+        updates["prompt"] = str(updates["prompt"]).strip()
+        if not updates["prompt"]:
+            raise HTTPException(status_code=400, detail="定时任务的提示词不能为空")
+        if len(updates["prompt"]) > settings.scheduler_prompt_max_chars:
+            raise HTTPException(
+                status_code=400,
+                detail=f"定时任务提示词过长（上限 {settings.scheduler_prompt_max_chars} 字符）",
+            )
+    if "interval_seconds" in updates:
+        interval = int(updates["interval_seconds"])
+        if not (
+            settings.scheduler_min_interval_seconds
+            <= interval
+            <= settings.scheduler_max_interval_seconds
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "定时间隔必须在 "
+                    f"{settings.scheduler_min_interval_seconds} 到 "
+                    f"{settings.scheduler_max_interval_seconds} 秒之间"
+                ),
+            )
+        updates["interval_seconds"] = interval
+    try:
+        updated = database.update_scheduled_task(task_id, **updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    if not updated:
+        raise HTTPException(status_code=404, detail="定时任务不存在")
+    return updated
+
+
+@app.delete("/api/schedules/{task_id}")
+async def api_delete_schedule(task_id: str):
+    if not database.delete_scheduled_task(task_id):
+        raise HTTPException(status_code=404, detail="定时任务不存在")
+    return {"deleted": True, "id": task_id}
+
+
+@app.post("/api/schedules/{task_id}/run")
+async def api_run_schedule(task_id: str):
+    task = database.get_scheduled_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="定时任务不存在")
+    if not scheduler.trigger(task_id):
+        raise HTTPException(status_code=409, detail="已有定时任务正在运行，请稍后再试")
+    return {"started": True, "task_id": task_id}
+
 
 # 9b. Audit & security policy API (Phase 2)
 @app.get("/api/audit")

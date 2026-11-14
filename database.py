@@ -1,11 +1,15 @@
 import json
 import os
 import sqlite3
+import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import retrieval
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "omni_agent.db")
+
+SCHEDULE_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=5.0)
@@ -116,6 +120,25 @@ def init_db():
     )
     """)
 
+    # 8. Scheduled / unattended tasks (Phase 3)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS scheduled_tasks (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        interval_seconds INTEGER NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        session_id TEXT NOT NULL,
+        last_run_at TEXT,
+        next_run_at TEXT NOT NULL,
+        last_status TEXT DEFAULT 'NEVER', -- NEVER/RUNNING/OK/ERROR/BLOCKED/INTERRUPTED
+        last_result TEXT,
+        run_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     # Indexes for the hot read paths
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC)")
@@ -126,6 +149,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_memories_lookup ON memories(category, key)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC, updated_at DESC)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_created ON knowledge_docs(id DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_schedules_due ON scheduled_tasks(enabled, next_run_at)")
     
     # Pre-seed some knowledge docs for RAG if empty
     cursor.execute("SELECT count(*) as cnt FROM knowledge_docs")
@@ -449,6 +473,253 @@ def search_knowledge(query: str, limit: int = 3) -> List[Dict[str, Any]]:
     if not query.strip():
         return list_knowledge(safe_limit)
     return retrieval.rank_knowledge(query, list_knowledge(1000), safe_limit)
+
+# Scheduled task operations (Phase 3)
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _format_schedule_time(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime(SCHEDULE_TIME_FORMAT)
+
+
+def _parse_schedule_time(value: Any) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text[:19], SCHEDULE_TIME_FORMAT).replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        return None
+
+
+def _schedule_row(row: sqlite3.Row) -> Dict[str, Any]:
+    item = dict(row)
+    item["enabled"] = bool(item.get("enabled"))
+    item["interval_seconds"] = int(item.get("interval_seconds") or 60)
+    item["run_count"] = int(item.get("run_count") or 0)
+    return item
+
+
+def _next_schedule_time(interval_seconds: int, base: Optional[datetime] = None) -> str:
+    interval = max(1, int(interval_seconds))
+    return _format_schedule_time((base or _utc_now()) + timedelta(seconds=interval))
+
+
+def create_scheduled_task(
+    name: str,
+    prompt: str,
+    interval_seconds: int,
+    enabled: bool = True,
+) -> Dict[str, Any]:
+    name = name.strip()
+    prompt = prompt.strip()
+    if not name or not prompt:
+        raise ValueError("定时任务的名称和提示词不能为空")
+    interval = max(1, int(interval_seconds))
+    task_id = "sch_" + uuid.uuid4().hex[:10]
+    session_id = "sched_" + task_id
+    next_run_at = _next_schedule_time(interval)
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO scheduled_tasks
+            (id, name, prompt, interval_seconds, enabled, session_id, next_run_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (task_id, name, prompt, interval, 1 if enabled else 0, session_id, next_run_at),
+    )
+    conn.commit()
+    conn.close()
+    created = get_scheduled_task(task_id)
+    if not created:
+        raise RuntimeError("定时任务创建失败")
+    return created
+
+
+def list_scheduled_tasks() -> List[Dict[str, Any]]:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT * FROM scheduled_tasks
+        ORDER BY enabled DESC, next_run_at ASC, created_at DESC
+        """
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [_schedule_row(row) for row in rows]
+
+
+def get_scheduled_task(task_id: str) -> Optional[Dict[str, Any]]:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (task_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return _schedule_row(row) if row else None
+
+
+def update_scheduled_task(
+    task_id: str,
+    *,
+    name: Optional[str] = None,
+    prompt: Optional[str] = None,
+    interval_seconds: Optional[int] = None,
+    enabled: Optional[bool] = None,
+) -> Optional[Dict[str, Any]]:
+    current = get_scheduled_task(task_id)
+    if not current:
+        return None
+
+    fields: list[str] = []
+    values: list[Any] = []
+    if name is not None:
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("定时任务的名称不能为空")
+        fields.append("name = ?")
+        values.append(clean_name)
+    if prompt is not None:
+        clean_prompt = prompt.strip()
+        if not clean_prompt:
+            raise ValueError("定时任务的提示词不能为空")
+        fields.append("prompt = ?")
+        values.append(clean_prompt)
+
+    now = _utc_now()
+    interval = int(current["interval_seconds"])
+    next_run_assigned = False
+    if interval_seconds is not None:
+        interval = max(1, int(interval_seconds))
+        fields.append("interval_seconds = ?")
+        values.append(interval)
+        fields.append("next_run_at = ?")
+        values.append(_next_schedule_time(interval, now))
+        next_run_assigned = True
+
+    if enabled is not None:
+        fields.append("enabled = ?")
+        values.append(1 if enabled else 0)
+        next_run = _parse_schedule_time(current.get("next_run_at"))
+        if enabled and not next_run_assigned and (next_run is None or next_run <= now):
+            fields.append("next_run_at = ?")
+            values.append(_next_schedule_time(interval, now))
+
+    if not fields:
+        return current
+
+    fields.append("updated_at = ?")
+    values.append(_format_schedule_time(now))
+    values.append(task_id)
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        f"UPDATE scheduled_tasks SET {', '.join(fields)} WHERE id = ?",
+        tuple(values),
+    )
+    conn.commit()
+    conn.close()
+    return get_scheduled_task(task_id)
+
+
+def delete_scheduled_task(task_id: str) -> bool:
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def due_scheduled_tasks(
+    limit: int = 5,
+    now: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    stamp = _format_schedule_time(now or _utc_now())
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT * FROM scheduled_tasks
+        WHERE enabled = 1 AND next_run_at <= ?
+        ORDER BY next_run_at ASC
+        LIMIT ?
+        """,
+        (stamp, max(1, int(limit))),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [_schedule_row(row) for row in rows]
+
+
+def mark_scheduled_task_running(task_id: str) -> Optional[Dict[str, Any]]:
+    now = _format_schedule_time(_utc_now())
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE scheduled_tasks
+        SET last_status = 'RUNNING', last_run_at = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (now, now, task_id),
+    )
+    conn.commit()
+    conn.close()
+    return get_scheduled_task(task_id)
+
+
+def finish_scheduled_task_run(
+    task_id: str,
+    status: str,
+    result: str,
+    *,
+    next_run_at: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    current = get_scheduled_task(task_id)
+    if not current:
+        return None
+    now = _utc_now()
+    next_run = next_run_at or _next_schedule_time(
+        int(current["interval_seconds"]), now
+    )
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE scheduled_tasks
+        SET last_status = ?, last_result = ?, next_run_at = ?,
+            run_count = run_count + 1, updated_at = ?
+        WHERE id = ?
+        """,
+        (status, result, next_run, _format_schedule_time(now), task_id),
+    )
+    conn.commit()
+    conn.close()
+    return get_scheduled_task(task_id)
+
+
+def recover_scheduled_tasks() -> int:
+    """Mark runs interrupted by a process restart instead of leaving RUNNING."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE scheduled_tasks
+        SET last_status = 'INTERRUPTED', updated_at = CURRENT_TIMESTAMP
+        WHERE last_status = 'RUNNING'
+        """
+    )
+    count = int(cursor.rowcount or 0)
+    conn.commit()
+    conn.close()
+    return count
+
 
 # SubAgent operations
 def record_subagent_task(task_id: str, parent_session_id: str, role: str, task: str):
