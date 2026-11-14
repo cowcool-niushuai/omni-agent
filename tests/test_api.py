@@ -21,6 +21,20 @@ def test_models_response_has_no_secret() -> None:
     body = response.json()
     assert "api_key" not in body["active"]
     assert all("api_key" not in model for model in body["models"])
+    assert body["active"]["ref"]
+    assert body["active"]["adapter"] in {"openai-compatible", "anthropic"}
+    assert all(model["ref"] for model in body["models"])
+
+
+def test_unknown_model_is_rejected() -> None:
+    response = client.post("/api/models/active", json={"model_id": "missing/model"})
+    assert response.status_code == 404
+
+
+def test_model_probe_without_key_is_reported() -> None:
+    response = client.post("/api/models/test", json={"provider_key": "not-a-provider"})
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
 
 
 def test_workspace_traversal_is_blocked() -> None:

@@ -21,6 +21,7 @@ dependencies = [
     "aiosqlite>=0.20",
     "mcp>=2.0,<3",
     "playwright>=1.55,<2",
+    "anthropic>=0.40,<1",
 ]
 
 [dependency-groups]

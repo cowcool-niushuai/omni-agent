@@ -679,32 +679,106 @@ class ActiveModelRequest(BaseModel):
 
 @app.post("/api/models/active")
 async def api_set_active_model(body: ActiveModelRequest):
-    model_manager.set_active_model(body.model_id)
+    try:
+        model_manager.set_active_model(body.model_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"status": "ok", "active": model_manager.get_active_model_info()}
 
 class ProviderKeyRequest(BaseModel):
     provider_key: str
-    api_key: str
+    api_key: str = ""
     base_url: Optional[str] = None
+    adapter: Optional[str] = None
+    env: Optional[List[str]] = None
+    headers: Optional[dict[str, str]] = None
 
 @app.post("/api/models/key")
 async def api_update_provider_key(body: ProviderKeyRequest):
-    model_manager.update_provider_key(body.provider_key, body.api_key, body.base_url)
+    try:
+        model_manager.update_provider_key(
+            body.provider_key,
+            body.api_key,
+            body.base_url,
+            adapter=body.adapter,
+            env=body.env,
+            headers=body.headers,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok", "provider": body.provider_key}
 
 class CustomModelRequest(BaseModel):
     provider_name: str
     base_url: str
-    api_key: str
+    api_key: str = ""
     model_name: str
     label: str
+    adapter: str = "openai-compatible"
+    provider_key: Optional[str] = None
+    model_id: Optional[str] = None
+    capabilities: Optional[dict] = None
+    limit: Optional[dict] = None
+    env_name: Optional[str] = None
 
 @app.post("/api/models/custom")
 async def api_add_custom_model(body: CustomModelRequest):
-    m_id = model_manager.add_custom_model(
-        body.provider_name, body.base_url, body.api_key, body.model_name, body.label
-    )
+    try:
+        m_id = model_manager.add_custom_model(
+            body.provider_name,
+            body.base_url,
+            body.api_key,
+            body.model_name,
+            body.label,
+            adapter=body.adapter,
+            provider_key=body.provider_key,
+            model_id=body.model_id,
+            capabilities=body.capabilities,
+            limit=body.limit,
+            env_name=body.env_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok", "model_id": m_id, "active": model_manager.get_active_model_info()}
+
+class ModelTestRequest(BaseModel):
+    provider_key: str
+    base_url: Optional[str] = None
+    adapter: Optional[str] = None
+    api_key: Optional[str] = None
+    model_name: Optional[str] = None
+
+@app.post("/api/models/test")
+async def api_test_model_provider(body: ModelTestRequest):
+    return await model_manager.test_provider(
+        body.provider_key,
+        base_url=body.base_url,
+        adapter=body.adapter,
+        api_key=body.api_key,
+        model_name=body.model_name,
+    )
+
+class ModelDiscoverRequest(BaseModel):
+    provider_key: str
+
+@app.post("/api/models/discover")
+async def api_discover_models(body: ModelDiscoverRequest):
+    try:
+        added = await model_manager.discover_models(body.provider_key)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "provider": body.provider_key,
+        "added": added,
+        "models": model_manager.get_all_models(),
+    }
 
 # 11. Serve Static UI
 @app.get("/", response_class=HTMLResponse)

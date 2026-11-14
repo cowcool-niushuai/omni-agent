@@ -5,7 +5,7 @@
 
 OmniAgent 是一个**单机单用户**的通用智能体应用：它不只回答问题，还能在工作区里读写文件、执行命令、运行 Python、调用 MCP 工具，并在高危操作前暂停，等待你批准后继续执行。
 
-项目当前已完成 **Phase 3（能力扩展）**：Phase 2 的沙箱、命令策略、SSRF 与审计，以及 Phase 3 的本地 Memory/RAG、定时任务、官方 MCP SDK 与无头浏览器自动化均已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
+项目当前已完成 **Phase 3（能力扩展）**：Phase 2 的沙箱、命令策略、SSRF 与审计，以及 Phase 3 的本地 Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配与无头浏览器自动化均已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
 
 ---
 
@@ -159,6 +159,37 @@ Web 控制台新增“审计记录”页，也可以调用 `GET /api/audit`、`G
 uv run playwright install chromium
 ```
 
+### 13. 多厂商模型适配
+
+模型体系参考 OpenCode 的 **Provider / Model Registry** 形式，但保持 Python 侧实现简洁：
+
+- 模型使用 `provider/model` 引用，例如 `deepseek/deepseek-v4-pro`
+- `model_config.json` 按 provider 分组，记录 `adapter`、`base_url`、`env`、`headers`、`body`
+- 每个模型可记录 `model_name`、显示名、上下文/输出上限、能力标记（工具、视觉、推理）
+- API Key 仍然只从环境变量读取，绝不写入模型配置
+- 旧的扁平 `models` 数组会自动迁移到 v2 结构，`active_model_id` 继续兼容
+
+当前内置适配器：
+
+| 适配器 | 覆盖范围 |
+|---|---|
+| `openai-compatible` | DeepSeek、OpenAI、Qwen、Kimi、智谱、Gemini OpenAI 兼容端点、硅基流动、Ollama、LM Studio、vLLM、OpenRouter 等 |
+| `anthropic` | Anthropic 官方 Messages API（原生工具调用、流式文本、thinking、工具结果转换） |
+
+运行时仍然只面向 OpenAI 形态的 `chat.completions`，适配器负责把不同厂商的流式事件、工具调用和消息结构统一成同一套事件，因此 LangGraph、审批、审计和前端无需感知厂商差异。
+
+管理接口：
+
+- `GET /api/models`：返回带 `ref`、`adapter`、能力信息的模型列表
+- `POST /api/models/active`：接受模型 ID 或 `provider/model`
+- `POST /api/models/test`：测试 provider 连接，返回延迟和可用模型
+- `POST /api/models/discover`：从 OpenAI 兼容端点或 Ollama 发现模型并写入注册表
+- `POST /api/models/custom`：新增自定义 provider / 模型，可指定适配器
+
+Web UI 的模型配置弹窗已支持厂商预设、适配器选择、连接测试和模型发现。
+
+> Google Gemini 目前使用其 OpenAI 兼容端点；Anthropic 使用原生适配器。OAuth、ChatGPT/Copilot 登录和 models.dev 全量目录不在当前范围内。
+
 ---
 
 ## 架构
@@ -216,7 +247,8 @@ omni-agent/
 ├── scheduler.py               # 定时任务调度器（无人值守 auto_reject）
 ├── browser.py                 # Playwright 无头浏览器（SSRF/审批/截图沙箱）
 ├── database.py                # SQLite 持久化（含 tool_audit / scheduled_tasks）
-├── model_manager.py           # 多 provider 模型管理（密钥只从环境变量读取）
+├── model_manager.py           # Provider/Model Registry（密钥只从环境变量读取）
+├── provider_adapters.py       # OpenAI-compatible / Anthropic 原生适配器
 ├── mcp_manager.py             # 官方 MCP SDK 客户端桥接（独立事件循环/超时/重连）
 ├── skills_manager.py          # Skills 扫描与写入
 ├── server.py                  # FastAPI 入口与 SSE
@@ -312,7 +344,7 @@ make check      # 全部检查
 | `BROWSER_SCREENSHOT_MAX_BYTES` | 截图文件大小上限 | `5242880` |
 | `BROWSER_PROXY` | 浏览器代理；留空复用环境变量 | 无 |
 
-完整列表见 `.env.example`。模型 provider 与模型列表在 `model_config.json` 中管理；**API Key 不会写入该文件**，只从环境变量读取。可参考 `model_config.example.json`。
+完整列表见 `.env.example`。模型 provider 与模型列表在 `model_config.json` 中管理，支持 `provider/model` 引用与 `openai-compatible` / `anthropic` 适配器；**API Key 不会写入该文件**，只从环境变量读取。可参考 `model_config.example.json`。
 
 ---
 
@@ -341,11 +373,11 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：92 passed
+- `pytest`：106 passed
 - `ruff`：All checks passed
 - `mypy`：Success，12 source files
 
-测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、浏览器参数校验/私网拦截/交互审批。
+测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测。
 
 ---
 
@@ -356,7 +388,7 @@ uv run mypy
 | Phase 0 | ✅ 完成 | 安全止血与工程底座：路径安全、密钥治理、日志、测试、CI |
 | Phase 1 | ✅ 完成 | LangGraph 内核：真流式、审批恢复、checkpoint、上下文压缩、并行工具、子代理 |
 | Phase 2 | ✅ 完成 | 沙箱与工具策略：bubblewrap/进程隔离、命令白名单、SSRF、资源配额、审计 |
-| Phase 3 | ✅ 完成 | 能力扩展：Memory/RAG、定时任务、官方 MCP SDK、Skills、无头浏览器自动化 |
+| Phase 3 | ✅ 完成 | 能力扩展：Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配、Skills、无头浏览器自动化 |
 | Phase 4 | 计划中 | 单机交付：本地数据目录、密钥加密、桌面壳/安装包、自动更新、可观测性 |
 | Phase 5 | 计划中 | 开源发布：LICENSE、文档、示例、CI Release |
 
