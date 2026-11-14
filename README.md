@@ -1,13 +1,126 @@
-# OmniAgent
+<p align="center">
+  <img src="assets/banner.svg" alt="OmniAgent — local-first AI agent platform" width="100%" />
+</p>
 
-> 一个可本地运行、可扩展、可恢复的开源 AI Agent 应用。
-> 桌面端 + Web UI + CLI + 真实工具执行 + MCP + Skills + Human-in-the-loop 审批。
+<h1 align="center">OmniAgent</h1>
 
-OmniAgent 是一个**可本地单机运行、也可切换为团队模式**的通用智能体应用：它不只回答问题，还能在工作区里读写文件、执行命令、运行 Python、调用 MCP 工具，并在高危操作前暂停，等待你批准后继续执行。
+<p align="center">
+  <strong>本地优先 · 可审计 · 可恢复的通用 AI Agent 工作台</strong>
+</p>
 
-项目当前已完成 **Phase 3（能力扩展）**、**Phase 4.0 生产化基础**、**Phase 4.1 团队版身份与项目隔离（M2）**、**Phase 4.2 Electron 桌面客户端**，以及 **Phase 4.3 可靠性增强**：Phase 2 的沙箱、命令策略、SSRF 与审计，Phase 3 的本地 Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配与无头浏览器自动化，以及会话生命周期、可选 API Token、用户/团队/项目、RBAC、项目级工作区、审计导出、原生桌面窗口、持久任务计划、工具契约、混合检索与证据验证器均已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
+<p align="center">
+  Desktop · Web Console · CLI · 真实工具执行 · MCP · RAG · Human-in-the-loop
+</p>
+
+<p align="center">
+  <img alt="Python 3.12" src="https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" />
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" />
+  <img alt="LangGraph" src="https://img.shields.io/badge/LangGraph-1C3C3C?style=for-the-badge" />
+  <img alt="MCP" src="https://img.shields.io/badge/MCP-stdio-267F68?style=for-the-badge" />
+  <img alt="Electron" src="https://img.shields.io/badge/Electron-47848F?style=for-the-badge&logo=electron&logoColor=white" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/cowcool-niushuai/omni-agent/releases/tag/v0.1.0">
+    <img alt="Release" src="https://img.shields.io/github/v/release/cowcool-niushuai/omni-agent?style=for-the-badge&color=59D6B3" />
+  </a>
+  <a href="https://github.com/cowcool-niushuai/omni-agent/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/cowcool-niushuai/omni-agent/actions/workflows/ci.yml/badge.svg" />
+  </a>
+  <a href="LICENSE">
+    <img alt="License" src="https://img.shields.io/badge/license-MIT-15201D?style=for-the-badge" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#核心能力">核心能力</a> ·
+  <a href="#架构一览">架构</a> ·
+  <a href="#配置">配置</a> ·
+  <a href="#路线图">路线图</a> ·
+  <a href="https://github.com/cowcool-niushuai/omni-agent/releases">下载桌面版</a>
+</p>
+
+> [!NOTE]
+> OmniAgent 不是“只会聊天的壳”。它把模型、工具、权限、沙箱、记忆、MCP、定时任务和审计放进同一个可恢复的 Agent Runtime，并同时提供桌面端、Web Console 和 CLI。
+
+## 为什么是 OmniAgent
+
+| 常见 Agent Demo | OmniAgent |
+|---|---|
+| 只调用一轮模型，工具结果是纯文本 | 显式 LangGraph 图，多轮推理、工具并行、计划与验证器 |
+| 高风险命令直接执行或永久拒绝 | `ALLOW / SAFE_EXEC / ASK_USER / DENY` 四级策略 + 可恢复审批 |
+| 会话刷新后丢失上下文 | SQLite checkpoint + 流式输出 + 断点续跑 + 手动/自动上下文压缩 |
+| 只能读本地文件 | 文件、Python、沙箱命令、浏览器、MCP、记忆、知识库、Git/GitHub |
+| 模型和厂商强绑定 | OpenAI-compatible 与 Anthropic 原生适配，多厂商注册表，按会话选模型 |
+| 只能在终端里试 | Electron 桌面端、Web 控制台、CLI、Docker 四种入口 |
+
+## 三种入口
+
+| 入口 | 适合场景 |
+|---|---|
+| **Electron Desktop** | 本地日常使用；原生窗口、托盘、内嵌 Python 后端、自动拉起服务 |
+| **Web Console** | 浏览器访问、项目管理、会话/审计/定时任务/团队管理 |
+| **CLI** | 终端调试、脚本化任务、快速验证 Agent 行为 |
+
+## 架构一览
+
+```mermaid
+flowchart LR
+  U[Desktop / Web / CLI] --> API[FastAPI + SSE]
+  API --> G[LangGraph StateGraph]
+  G --> A[Agent / Planner]
+  G --> V[Verifier]
+  A --> P[Permission Policy]
+  P --> S[Sandbox / bwrap]
+  P --> T[Tool Layer]
+  T --> F[Files / Python / Bash]
+  T --> M[MCP Servers]
+  T --> W[Web / Browser]
+  G --> C[(SQLite Checkpoints)]
+  API --> DB[(Sessions / Memory / Audit)]
+```
 
 ---
+
+<details>
+<summary><b>目录 / Table of Contents</b></summary>
+
+- [为什么是 OmniAgent](#为什么是-omniagent)
+- [三种入口](#三种入口)
+- [架构一览](#架构一览)
+- [60 秒启动](#60-秒启动)
+- [核心能力](#核心能力)
+- [架构](#架构)
+- [快速开始](#快速开始)
+- [配置](#配置)
+- [安全约定](#安全约定)
+- [测试](#测试)
+- [路线图](#路线图)
+- [贡献、安全与许可](#贡献安全与许可)
+
+</details>
+
+## 60 秒启动
+
+```bash
+git clone https://github.com/cowcool-niushuai/omni-agent.git
+cd omni-agent
+uv sync --all-groups
+cp .env.example .env
+# 编辑 .env，填入模型厂商 API Key
+uv run uvicorn server:app --host 127.0.0.1 --port 8001
+```
+
+打开 `http://127.0.0.1:8001`。桌面端：
+
+```bash
+cd desktop
+npm install
+npm start
+```
+
+> 需要 Docker、桌面打包、团队模式或完整配置时，继续看下面的 [快速开始](#快速开始) 和 [配置](#配置)。
 
 ## 核心能力
 
