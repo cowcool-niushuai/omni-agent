@@ -1,0 +1,45 @@
+{
+  "name": "omni-agent-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OmniAgent desktop client",
+  "author": "OmniAgent",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --test test/*.test.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --linux AppImage deb"
+  },
+  "devDependencies": {
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "ai.omniagent.desktop",
+    "productName": "OmniAgent",
+    "artifactName": "OmniAgent-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "resources"
+    },
+    "files": [
+      "main.js",
+      "backend.js",
+      "splash-preload.js",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "resources/icon.png",
+      "executableName": "omni-agent"
+    }
+  }
+}

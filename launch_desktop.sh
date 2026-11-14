@@ -2,11 +2,23 @@
 REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "${REAL_SCRIPT}")" && pwd)"
 
+# Preferred path: the Electron desktop client owns backend lifecycle, retries
+# and native window management.
+ELECTRON_BIN="${SCRIPT_DIR}/desktop/node_modules/.bin/electron"
+if [ -x "${ELECTRON_BIN}" ]; then
+    # Some agent shells export ELECTRON_RUN_AS_NODE, which turns Electron into
+    # plain Node and prevents the window from opening.
+    exec env -u ELECTRON_RUN_AS_NODE "${ELECTRON_BIN}" "${SCRIPT_DIR}/desktop" "$@"
+fi
+
+echo "Electron desktop dependencies are not installed; falling back to a browser app window."
+echo "Install the desktop client with: cd desktop && npm install"
+
 # 1. Ensure backend service is running on port 8001
 if ! curl -s http://127.0.0.1:8001/health > /dev/null 2>&1; then
     echo "Starting OmniAgent backend engine..."
     nohup "${SCRIPT_DIR}/.venv/bin/uvicorn" server:app --app-dir "${SCRIPT_DIR}" --host 127.0.0.1 --port 8001 > /dev/null 2>&1 &
-    
+
     # Wait up to 5s for backend startup
     for i in {1..10}; do
         if curl -s http://127.0.0.1:8001/health > /dev/null 2>&1; then

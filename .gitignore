@@ -27,3 +27,8 @@ build/
 .idea/
 .vscode/
 .DS_Store
+
+# Desktop
+node_modules/
+desktop/node_modules/
+desktop/release/

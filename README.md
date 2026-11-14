@@ -1,11 +1,11 @@
 # OmniAgent
 
 > 一个可本地运行、可扩展、可恢复的开源 AI Agent 应用。
-> Web UI + CLI + 真实工具执行 + MCP + Skills + Human-in-the-loop 审批。
+> 桌面端 + Web UI + CLI + 真实工具执行 + MCP + Skills + Human-in-the-loop 审批。
 
 OmniAgent 是一个**可本地单机运行、也可切换为团队模式**的通用智能体应用：它不只回答问题，还能在工作区里读写文件、执行命令、运行 Python、调用 MCP 工具，并在高危操作前暂停，等待你批准后继续执行。
 
-项目当前已完成 **Phase 3（能力扩展）**、**Phase 4.0 生产化基础**，以及 **Phase 4.1 团队版身份与项目隔离（M2）**：Phase 2 的沙箱、命令策略、SSRF 与审计，Phase 3 的本地 Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配与无头浏览器自动化，以及会话生命周期、可选 API Token、用户/团队/项目、RBAC、项目级工作区与审计导出均已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
+项目当前已完成 **Phase 3（能力扩展）**、**Phase 4.0 生产化基础**、**Phase 4.1 团队版身份与项目隔离（M2）**，以及 **Phase 4.2 Electron 桌面客户端**：Phase 2 的沙箱、命令策略、SSRF 与审计，Phase 3 的本地 Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配与无头浏览器自动化，以及会话生命周期、可选 API Token、用户/团队/项目、RBAC、项目级工作区、审计导出和原生桌面窗口均已落地，目标是成为一个可靠、可审计、可打包分发的开源 Agent 应用。
 
 ---
 
@@ -274,6 +274,55 @@ POST   /api/audit/purge
 
 企业级差距与后续路线见 [`docs/ENTERPRISE_ROADMAP.md`](docs/ENTERPRISE_ROADMAP.md)。
 
+### 16. Electron 桌面客户端
+
+`desktop/` 提供原生桌面窗口，不再依赖浏览器标签页：
+
+- 原生窗口、系统托盘、启动画面和窗口位置记忆
+- 自动探测并复用已运行的 `127.0.0.1:8001` 后端
+- 后端未启动时自动拉起仓库 `.venv` 中的 `uvicorn`
+- 后端日志写入系统应用数据目录的 `backend.log`，菜单和托盘可直接打开
+- 退出时只停止由桌面客户端自己启动的后端，不影响外部服务
+- 外部链接交给系统浏览器，页面导航限制在本地后端源
+- 单实例锁、加载失败重试、渲染进程崩溃提示、窗口边界校验
+
+快速启动：
+
+```bash
+cd desktop
+npm install
+npm start
+```
+
+或者从仓库根目录：
+
+```bash
+make desktop-install
+make desktop
+```
+
+也可以执行 `./launch_desktop.sh`。如果 Electron 依赖尚未安装，脚本会回退到 Chrome/Chromium 独立应用窗口。
+
+常用命令：
+
+```bash
+make desktop-test    # Electron 后端管理单元测试
+make desktop-smoke   # 无界面截图冒烟测试
+make desktop-pack    # 生成未压缩应用目录
+make desktop-dist    # 生成 Linux AppImage + deb
+```
+
+桌面端环境变量：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `OMNI_DESKTOP_PORT` | `8001` | 后端端口 |
+| `OMNI_DESKTOP_REPO_ROOT` | 仓库根目录 | Python 后端源码目录 |
+| `OMNI_DESKTOP_PYTHON` | 仓库 `.venv` Python | 启动后端使用的解释器 |
+| `OMNI_DESKTOP_BACKEND` | 空 | 直接指定后端可执行文件，优先级最高 |
+
+当前限制：AppImage/deb **尚未内嵌 Python 后端**，安装包需要目标机器已有后端，或通过 `OMNI_DESKTOP_BACKEND` 指定独立后端。开发模式直接复用仓库 `.venv`。完整说明见 [`desktop/README.md`](desktop/README.md)。
+
 ---
 
 ## 架构
@@ -339,6 +388,7 @@ omni-agent/
 ├── server.py                  # FastAPI 入口与 SSE
 ├── cli.py                     # Rich CLI / 审批交互 / 审计查询
 ├── static/index.html          # Web 控制台（含审计页）
+├── desktop/                   # Electron 桌面客户端（窗口/托盘/后端生命周期）
 ├── docs/                      # 企业级路线与企业部署文档
 ├── Dockerfile                 # 生产镜像（含 bwrap / Chromium）
 ├── docker-compose.yml         # 单机生产编排
@@ -504,7 +554,8 @@ uv run mypy
 | Phase 3 | ✅ 完成 | 能力扩展：Memory/RAG、定时任务、官方 MCP SDK、多厂商模型适配、Skills、无头浏览器自动化 |
 | Phase 4.0 | ✅ 完成 | 生产化基础：会话生命周期、搜索/导出、可选 API Token、系统信息、前端交互完善 |
 | Phase 4.1 | ✅ 完成 | 团队版 M2：用户/团队/项目、登录与 CSRF、RBAC、API Token 作用域、项目隔离、审计导出 |
-| Phase 4 | 🚧 进行中 | 企业级平台：文件/预览、可观测性、Docker/备份、插件与 SDK |
+| Phase 4.2 | ✅ 完成 | Electron 桌面客户端：原生窗口、托盘、启动画面、后端自动拉起与日志、窗口状态记忆 |
+| Phase 4 | 🚧 进行中 | 企业级平台：内嵌后端安装包、文件/预览、可观测性、Docker/备份、插件与 SDK |
 | Phase 5 | 计划中 | 开源发布：LICENSE、文档、示例、CI Release |
 
 ---
