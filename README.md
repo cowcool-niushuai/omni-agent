@@ -54,7 +54,7 @@ START -> agent -> (需要审批?) -> approval -> tools -> agent -> ... -> END
 
 扩展能力：
 
-- **MCP**：通过 stdio JSON-RPC 挂载外部 MCP Server，动态发现工具
+- **MCP**：基于官方 Python SDK v2（`ClientSession` + `stdio_client`）挂载 stdio MCP Server，动态发现工具、解析标准内容块并自动重连
 - **Skills**：扫描 `skills/*/SKILL.md`，按需注入技能规范
 - **子代理**：主 Agent 可以把独立子任务委派给专职子 Agent
 
@@ -128,6 +128,17 @@ Web 控制台新增“审计记录”页，也可以调用 `GET /api/audit`、`G
 - Web 控制台“定时任务”页支持创建、编辑、启停、立即运行、删除和查看上次结果
 - REST API：`GET/POST /api/schedules`、`GET/PATCH/DELETE /api/schedules/{id}`、`POST /api/schedules/{id}/run`
 
+### 11. 官方 MCP SDK 客户端
+
+`mcp_manager.py` 已从手写 JSON-RPC 迁移到官方 `mcp` Python SDK v2：
+
+- 使用 `stdio_client` + `ClientSession` 完成握手、工具发现和工具调用
+- 每个 Server 的传输与会话由同一后台任务持有，满足 anyio 取消作用域要求
+- 同步工具层通过独立事件循环线程调用 SDK，不阻塞 FastAPI 事件循环
+- 请求带超时；连接断开或协议错误时自动重连并重试一次
+- 支持官方 `CallToolResult` 文本/图片/音频/资源链接内容块，结构化结果自动转 JSON
+- `mcp_config.json` 的 Server 配置支持 `command`、`args`、`env`、`cwd`、`enabled`
+
 ---
 
 ## 架构
@@ -185,7 +196,7 @@ omni-agent/
 ├── scheduler.py               # 定时任务调度器（无人值守 auto_reject）
 ├── database.py                # SQLite 持久化（含 tool_audit / scheduled_tasks）
 ├── model_manager.py           # 多 provider 模型管理（密钥只从环境变量读取）
-├── mcp_manager.py             # MCP stdio 客户端（超时/重连/并发锁）
+├── mcp_manager.py             # 官方 MCP SDK 客户端桥接（独立事件循环/超时/重连）
 ├── skills_manager.py          # Skills 扫描与写入
 ├── server.py                  # FastAPI 入口与 SSE
 ├── cli.py                     # Rich CLI / 审批交互 / 审计查询
@@ -303,11 +314,11 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：85 passed
+- `pytest`：86 passed
 - `ruff`：All checks passed
 - `mypy`：Success，12 source files
 
-测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复。
+测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用。
 
 ---
 
@@ -318,7 +329,7 @@ uv run mypy
 | Phase 0 | ✅ 完成 | 安全止血与工程底座：路径安全、密钥治理、日志、测试、CI |
 | Phase 1 | ✅ 完成 | LangGraph 内核：真流式、审批恢复、checkpoint、上下文压缩、并行工具、子代理 |
 | Phase 2 | ✅ 完成 | 沙箱与工具策略：bubblewrap/进程隔离、命令白名单、SSRF、资源配额、审计 |
-| Phase 3 | 🚧 进行中 | 能力扩展：Memory/RAG（✅ 本地 BM25 + 记忆/知识 CRUD + UI）、定时任务（✅ 无人值守 + Web/API）、官方 MCP SDK、Skills、浏览器 |
+| Phase 3 | 🚧 进行中 | 能力扩展：Memory/RAG（✅ 本地 BM25 + 记忆/知识 CRUD + UI）、定时任务（✅ 无人值守 + Web/API）、官方 MCP SDK（✅ v2 ClientSession + 自动重连）、Skills、浏览器 |
 | Phase 4 | 计划中 | 单机交付：本地数据目录、密钥加密、桌面壳/安装包、自动更新、可观测性 |
 | Phase 5 | 计划中 | 开源发布：LICENSE、文档、示例、CI Release |
 

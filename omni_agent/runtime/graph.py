@@ -216,7 +216,7 @@ class AgentRuntime:
             )
         model_messages.extend(messages[summary_upto:])
 
-        tool_schemas = tools.get_all_tool_definitions()
+        tool_schemas = await asyncio.to_thread(tools.get_all_tool_definitions)
         try:
             content, reasoning, tool_calls, parsed_arguments = await self._stream_completion(
                 client=client,
@@ -621,9 +621,10 @@ web_fetch, rag_search）来执行调查、编写代码或数据分析。
 2. 如需写代码或生成文件，请直接在 ./workspace 中产出。
 3. 任务完成后，提供精炼、清晰的结构化总结汇报。
 """
+        all_tools = await asyncio.to_thread(tools.get_all_tool_definitions)
         subagent_tools = [
             item
-            for item in tools.get_all_tool_definitions()
+            for item in all_tools
             if item["function"]["name"] != "spawn_subagent"
         ]
         sub_messages: list[dict[str, Any]] = [

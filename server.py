@@ -203,11 +203,11 @@ async def api_create_skill(body: SkillCreate):
 # 5. MCP (Model Context Protocol) API
 @app.get("/api/mcp/servers")
 async def api_mcp_servers():
-    return mcp_manager.list_server_status()
+    return await run_in_threadpool(mcp_manager.list_server_status)
 
 @app.get("/api/mcp/tools")
 async def api_mcp_tools():
-    return mcp_manager.get_all_mcp_tools()
+    return await run_in_threadpool(mcp_manager.get_all_mcp_tools)
 
 # 6. Workspace File Explorer & Viewer API
 def _scan_workspace() -> list[dict]:

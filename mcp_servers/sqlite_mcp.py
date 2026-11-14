@@ -116,6 +116,10 @@ def main():
             continue
         try:
             req = json.loads(line)
+            # JSON-RPC notifications (for example notifications/initialized)
+            # have no id and must not receive a response.
+            if "id" not in req:
+                continue
             req_id = req.get("id")
             method = req.get("method")
             params = req.get("params", {})
