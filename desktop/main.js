@@ -138,7 +138,7 @@ function createMainWindow() {
     title: APP_NAME,
     backgroundColor: '#F5F8F7',
     icon: ICON_PATH,
-    autoHideMenuBar: false,
+    autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -146,6 +146,10 @@ function createMainWindow() {
       spellcheck: false,
     },
   });
+
+  // Keep the native menu available with Alt, but hide the dark menu strip.
+  mainWindow.setAutoHideMenuBar(true);
+  mainWindow.setMenuBarVisibility(false);
 
   const allowedOrigin = new URL(backend.url).origin;
   const wc = mainWindow.webContents;
