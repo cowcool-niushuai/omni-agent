@@ -23,6 +23,7 @@ import permission
 import skills_manager
 from agent_core import agent_core
 from browser import browser_manager
+from mcp_api import router as mcp_admin_router
 from mcp_manager import mcp_manager
 from model_manager import model_manager
 from omni_agent import tenancy
@@ -60,6 +61,8 @@ app = FastAPI(
     version=settings.app_version,
     lifespan=lifespan,
 )
+
+app.include_router(mcp_admin_router)
 
 app.add_middleware(
     CORSMiddleware,

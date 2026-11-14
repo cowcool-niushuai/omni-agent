@@ -141,6 +141,31 @@ Web 控制台新增“审计记录”页，也可以调用 `GET /api/audit`、`G
 - 支持官方 `CallToolResult` 文本/图片/音频/资源链接内容块，结构化结果自动转 JSON
 - `mcp_config.json` 的 Server 配置支持 `command`、`args`、`env`、`cwd`、`enabled`
 
+### 11.1 MCP 可视化管理
+
+设置页的「MCP 服务」现在支持在界面中管理本地 stdio MCP Server，不需要手工编辑配置文件或重启应用：
+
+- 添加本地 MCP Server：名称、启动命令、参数、环境变量、工作目录、说明
+- 测试连接：保存前先启动临时进程，探测工具数量和错误原因
+- 编辑、启用、禁用、删除 Server
+- 保存后热重载：重新连接变更的 Server，保留未变化的连接
+- 仅管理员可修改；普通成员只能查看状态和已注册工具
+
+相关 API：
+
+```text
+GET    /api/mcp/config
+POST   /api/mcp/servers
+PATCH  /api/mcp/servers/{name}
+DELETE /api/mcp/servers/{name}
+POST   /api/mcp/servers/test
+POST   /api/mcp/reload
+```
+
+配置写入 `mcp_config.json`（可通过 `OMNI_MCP_CONFIG_PATH` 指定，打包版位于用户数据目录），使用原子写入和 `0600` 权限。当前管理能力只覆盖本地 stdio Server；远程 HTTP / SSE / Streamable HTTP、OAuth 和项目级 MCP 配置仍属于后续工作。
+
+MCP 的 `command` 本质上会启动本地进程，因此管理接口仅限管理员，并把配置变更纳入审计和权限边界。
+
 ### 12. 无头浏览器自动化
 
 `browser.py` 基于 Playwright + Chromium 提供受控的网页交互能力：
@@ -466,6 +491,8 @@ omni-agent/
 ├── model_manager.py           # Provider/Model Registry（密钥只从环境变量读取）
 ├── provider_adapters.py       # OpenAI-compatible / Anthropic 原生适配器
 ├── mcp_manager.py             # 官方 MCP SDK 客户端桥接（独立事件循环/超时/重连）
+├── mcp_config.py              # MCP 配置文件校验、持久化与热重载
+├── mcp_api.py                 # MCP Server 管理 API（仅管理员）
 ├── skills_manager.py          # Skills 扫描与写入
 ├── server.py                  # FastAPI 入口与 SSE
 ├── cli.py                     # Rich CLI / 审批交互 / 审计查询
@@ -633,11 +660,11 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：130 passed
+- `pytest`：140 passed
 - `ruff`：All checks passed
 - `mypy`：Success，15 source files
 
-测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护、密码哈希、登录与 CSRF、项目隔离、跨项目访问拒绝、viewer 只读、Token 作用域、审批请求项目隔离、最后一个管理员保护、工具参数契约与非法参数拦截、工具错误分类、幂等重试策略、计划规范化与验证规则、验证器修复循环、计划 API 与 UI。
+测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、MCP 配置校验/增删改/启停/测试/热重载、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护、密码哈希、登录与 CSRF、项目隔离、跨项目访问拒绝、viewer 只读、Token 作用域、审批请求项目隔离、最后一个管理员保护、工具参数契约与非法参数拦截、工具错误分类、幂等重试策略、计划规范化与验证规则、验证器修复循环、计划 API 与 UI。
 
 ---
 

@@ -316,6 +316,49 @@
     <!-- 4. MCP SERVERS TAB -->
     <div id="tab-mcp" class="hidden flex-1 flex flex-col h-full p-6 overflow-y-auto">
       <div class="max-w-3xl mx-auto w-full">
+        <div class="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h2 class="text-base font-bold text-[#15201D]">MCP 服务</h2>
+            <p class="text-[11px] text-[#7A8C87] mt-1">连接本地应用提供的 stdio MCP Server。保存后热重载，无需重启。</p>
+          </div>
+          <button onclick="openMCPForm()" class="shrink-0 px-3 py-1.5 rounded-xl bg-[#15201D] text-white text-xs font-semibold hover:bg-[#24332F] flex items-center gap-1.5">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i> 添加 MCP 服务器
+          </button>
+        </div>
+        <div id="mcp-form" class="hidden mb-4 rounded-2xl border border-[#D5E2DE] bg-[#FBFDFC] p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 id="mcp-form-title" class="text-xs font-bold text-[#15201D]">添加 MCP 服务器</h3>
+            <button onclick="closeMCPForm()" class="text-[#7A8C87] hover:text-[#15201D]" aria-label="关闭表单"><i data-lucide="x" class="w-4 h-4"></i></button>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input id="mcp-form-name" placeholder="名称，例如 godot" class="bg-white border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs font-mono text-[#15201D]">
+            <input id="mcp-form-command" placeholder="启动命令，例如 npx 或 /path/to/server" class="bg-white border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs font-mono text-[#15201D]">
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[10px] text-[#7A8C87] mb-1">参数（每行一个）</label>
+              <textarea id="mcp-form-args" rows="3" placeholder="-y&#10;@coding-solo/godot-mcp" class="w-full bg-white border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs font-mono text-[#15201D]"></textarea>
+            </div>
+            <div>
+              <label class="block text-[10px] text-[#7A8C87] mb-1">环境变量（KEY=VALUE，每行一个）</label>
+              <textarea id="mcp-form-env" rows="3" placeholder="API_KEY=..." class="w-full bg-white border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs font-mono text-[#15201D]"></textarea>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input id="mcp-form-cwd" placeholder="工作目录（可选）" class="bg-white border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs font-mono text-[#15201D]">
+            <input id="mcp-form-description" placeholder="说明（可选）" class="bg-white border border-[#E3ECE9] rounded-xl px-3 py-2 text-xs text-[#15201D]">
+          </div>
+          <label class="inline-flex items-center gap-2 text-[11px] text-[#4A5568]">
+            <input id="mcp-form-enabled" type="checkbox" checked class="rounded border-[#C9D8D3]">
+            保存后立即启用
+          </label>
+          <div id="mcp-form-result" class="hidden rounded-xl px-3 py-2 text-[11px] leading-relaxed"></div>
+          <div class="flex flex-wrap items-center justify-end gap-2 pt-1">
+            <button onclick="testMCPForm()" class="px-3 py-1.5 rounded-xl border border-[#E3ECE9] text-xs text-[#15201D] hover:bg-white">测试连接</button>
+            <button onclick="closeMCPForm()" class="px-3 py-1.5 rounded-xl text-xs text-[#7A8C87] hover:bg-[#F2F6F5]">取消</button>
+            <button onclick="saveMCPForm()" class="px-3.5 py-1.5 rounded-xl bg-[#15201D] text-white text-xs font-semibold hover:bg-[#24332F]">保存并热重载</button>
+          </div>
+        </div>
         <div id="mcp-servers-list" class="space-y-3 mb-6"></div>
         <div class="text-xs font-semibold text-[#7A8C87] mb-2 uppercase">注册工具</div>
         <div id="mcp-tools-list" class="grid grid-cols-1 md:grid-cols-2 gap-2"></div>
@@ -2540,7 +2583,235 @@
       loadSkills();
     }
 
+    let mcpConfigCache = [];
+    let editingMCPName = null;
+
+    function mcpCanManage() {
+      return typeof currentUser === 'undefined' || !currentUser || currentUser.role === 'admin';
+    }
+
+    function openMCPForm(server) {
+      if (!mcpCanManage()) {
+        toast('只有管理员可以管理 MCP 服务', 'error');
+        return;
+      }
+      editingMCPName = server ? server.name : null;
+      document.getElementById('mcp-form-title').innerText = server ? `编辑 ${server.name}` : '添加 MCP 服务器';
+      document.getElementById('mcp-form-name').value = server ? server.name : '';
+      document.getElementById('mcp-form-name').disabled = Boolean(server);
+      document.getElementById('mcp-form-command').value = server ? (server.command || '') : '';
+      document.getElementById('mcp-form-args').value = server ? (server.args || []).join('\n') : '';
+      document.getElementById('mcp-form-env').value = server ? Object.entries(server.env || {}).map(([k, v]) => `${k}=${v}`).join('\n') : '';
+      document.getElementById('mcp-form-cwd').value = server ? (server.cwd || '') : '';
+      document.getElementById('mcp-form-description').value = server ? (server.description || '') : '';
+      document.getElementById('mcp-form-enabled').checked = server ? server.enabled !== false : true;
+      const result = document.getElementById('mcp-form-result');
+      result.className = 'hidden rounded-xl px-3 py-2 text-[11px]';
+      result.innerText = '';
+      document.getElementById('mcp-form').classList.remove('hidden');
+      document.getElementById('mcp-form-name').focus();
+      lucide.createIcons();
+    }
+
+    function closeMCPForm() {
+      document.getElementById('mcp-form').classList.add('hidden');
+      editingMCPName = null;
+    }
+
+    function parseMCPLines(value) {
+      return String(value || '').split('\n').map(line => line.trim()).filter(Boolean);
+    }
+
+    function mcpFormPayload() {
+      const env = {};
+      parseMCPLines(document.getElementById('mcp-form-env').value).forEach(line => {
+        const index = line.indexOf('=');
+        if (index <= 0) throw new Error(`环境变量格式错误: ${line}`);
+        env[line.slice(0, index).trim()] = line.slice(index + 1).trim();
+      });
+      return {
+        name: document.getElementById('mcp-form-name').value.trim(),
+        command: document.getElementById('mcp-form-command').value.trim(),
+        args: parseMCPLines(document.getElementById('mcp-form-args').value),
+        env,
+        cwd: document.getElementById('mcp-form-cwd').value.trim(),
+        description: document.getElementById('mcp-form-description').value.trim(),
+        enabled: document.getElementById('mcp-form-enabled').checked,
+      };
+    }
+
+    function showMCPResult(ok, message) {
+      const result = document.getElementById('mcp-form-result');
+      result.className = `rounded-xl px-3 py-2 text-[11px] ${ok ? 'bg-[#EDF7F1] text-[#267F68] border border-[#B8DCCB]' : 'bg-[#FFF5F5] text-[#8B2E2E] border border-[#D98B8B]'}`;
+      result.innerText = message;
+    }
+
+    async function testMCPForm() {
+      try {
+        const payload = mcpFormPayload();
+        if (!payload.command) {
+          showMCPResult(false, '请填写启动命令');
+          return;
+        }
+        showMCPResult(true, '正在启动并连接…');
+        const res = await fetch('/api/mcp/servers/test', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ command: payload.command, args: payload.args, env: payload.env, cwd: payload.cwd }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        const names = (data.tools || []).join(', ');
+        showMCPResult(Boolean(data.ok), `${data.message || ''}${names ? `：${names}` : ''}`);
+      } catch (e) {
+        showMCPResult(false, e.message || String(e));
+      }
+    }
+
+    async function saveMCPForm() {
+      try {
+        const payload = mcpFormPayload();
+        if (!payload.name || !payload.command) {
+          showMCPResult(false, '名称和启动命令不能为空');
+          return;
+        }
+        const editing = Boolean(editingMCPName);
+        const url = editing ? `/api/mcp/servers/${encodeURIComponent(editingMCPName)}` : '/api/mcp/servers';
+        const res = await fetch(url, {
+          method: editing ? 'PATCH' : 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        closeMCPForm();
+        toast(editing ? 'MCP 服务已更新' : 'MCP 服务已添加', 'success');
+        await loadMCPStatus();
+      } catch (e) {
+        showMCPResult(false, e.message || String(e));
+      }
+    }
+
+    async function testMCPServer(name) {
+      const server = mcpConfigCache.find(item => item.name === name);
+      if (!server) return;
+      toast(`正在测试 ${name}…`, 'info');
+      try {
+        const res = await fetch('/api/mcp/servers/test', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ command: server.command, args: server.args || [], env: server.env || {}, cwd: server.cwd || '' }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        toast(data.message || (data.ok ? '连接成功' : '连接失败'), data.ok ? 'success' : 'error');
+      } catch (e) {
+        toast(`连接失败: ${e.message || e}`, 'error');
+      }
+    }
+
+    async function toggleMCPServer(name) {
+      const server = mcpConfigCache.find(item => item.name === name);
+      if (!server) return;
+      try {
+        const res = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ enabled: !server.enabled }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || `HTTP ${res.status}`);
+        }
+        toast(server.enabled ? 'MCP 服务已停用' : 'MCP 服务已启用', 'success');
+        await loadMCPStatus();
+      } catch (e) {
+        toast(`操作失败: ${e.message || e}`, 'error');
+      }
+    }
+
+    async function deleteMCPServer(name) {
+      if (!window.confirm(`确定删除 MCP 服务「${name}」吗？`)) return;
+      try {
+        const res = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || `HTTP ${res.status}`);
+        }
+        toast('MCP 服务已删除', 'success');
+        await loadMCPStatus();
+      } catch (e) {
+        toast(`删除失败: ${e.message || e}`, 'error');
+      }
+    }
+
+    function editMCPServer(name) {
+      const server = mcpConfigCache.find(item => item.name === name);
+      if (server) openMCPForm(server);
+    }
+
     async function loadMCPStatus() {
+      const addBtn = document.querySelector('#tab-mcp button[onclick="openMCPForm()"]');
+      if (addBtn) addBtn.classList.toggle('hidden', !mcpCanManage());
+      const [configRes, toolsRes] = await Promise.all([
+        fetch('/api/mcp/config'),
+        fetch('/api/mcp/tools'),
+      ]);
+      const servers = configRes.ok ? await configRes.json() : [];
+      const tools = toolsRes.ok ? await toolsRes.json() : [];
+      mcpConfigCache = servers;
+      const sBox = document.getElementById('mcp-servers-list');
+      sBox.innerHTML = '';
+      if (!servers.length) {
+        sBox.innerHTML = `<div class="text-center text-[11px] text-[#9AA9A4] border border-dashed border-[#E3ECE9] rounded-2xl py-8">还没有 MCP 服务，点击右上角“添加 MCP 服务器”。</div>`;
+      }
+      servers.forEach(s => {
+        const item = document.createElement('div');
+        item.className = "bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-3.5 shadow-sm";
+        const statusText = !s.enabled ? '已停用' : (s.connected ? '已连接' : (s.error ? '连接失败' : '未连接'));
+        const statusClass = !s.enabled
+          ? 'bg-[#F5F8F7] text-[#7A8C87]'
+          : (s.connected ? 'bg-[#EDF7F1] text-[#267F68]' : 'bg-[#FFF5F5] text-[#8B2E2E]');
+        item.innerHTML = `
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-bold text-xs text-[#15201D]">${escapeHtml(s.name)}</span>
+                <span class="text-[9px] px-1.5 py-0.5 rounded-full font-mono ${statusClass}">${statusText}</span>
+                <span class="text-[9px] text-[#9AA9A4] font-mono">${escapeHtml(s.transport || 'stdio')}</span>
+              </div>
+              <div class="text-[10px] text-[#7A8C87] font-mono mt-1 truncate">${escapeHtml(s.command || '')} ${escapeHtml((s.args || []).join(' '))}</div>
+              <div class="text-[10px] text-[#9AA9A4] mt-1">${s.tools_count || 0} 个工具${s.cwd ? ` · cwd ${escapeHtml(s.cwd)}` : ''}</div>
+              ${s.error ? `<div class="text-[10px] text-[#B4544E] mt-1 break-all">${escapeHtml(s.error)}</div>` : ''}
+              ${s.description ? `<div class="text-[10px] text-[#7A8C87] mt-1">${escapeHtml(s.description)}</div>` : ''}
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+              <button data-action="test" class="p-1.5 rounded-lg text-[#7A8C87] hover:text-[#267F68] hover:bg-[#EDF3F1]" title="测试连接"><i data-lucide="plug-zap" class="w-3.5 h-3.5"></i></button>
+              <button data-action="edit" class="p-1.5 rounded-lg text-[#7A8C87] hover:text-[#267F68] hover:bg-[#EDF3F1]" title="编辑"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+              <button data-action="toggle" class="p-1.5 rounded-lg text-[#7A8C87] hover:text-[#C98B4E] hover:bg-[#FFFBF6]" title="${s.enabled ? '停用' : '启用'}"><i data-lucide="${s.enabled ? 'pause' : 'play'}" class="w-3.5 h-3.5"></i></button>
+              <button data-action="delete" class="p-1.5 rounded-lg text-[#7A8C87] hover:text-[#C0392B] hover:bg-[#FFF1F0]" title="删除"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+            </div>
+          </div>`;
+        item.querySelector('[data-action="test"]').onclick = () => testMCPServer(s.name);
+        item.querySelector('[data-action="edit"]').onclick = () => editMCPServer(s.name);
+        item.querySelector('[data-action="toggle"]').onclick = () => toggleMCPServer(s.name);
+        item.querySelector('[data-action="delete"]').onclick = () => deleteMCPServer(s.name);
+        sBox.appendChild(item);
+      });
+      const tBox = document.getElementById('mcp-tools-list');
+      tBox.innerHTML = '';
+      tools.forEach(t => {
+        const c = document.createElement('div');
+        c.className = "bg-[#FFFFFF] border border-[#E3ECE9] rounded-xl p-3 shadow-sm";
+        c.innerHTML = `
+          <div class="text-[11px] font-mono font-semibold text-[#15201D]">${escapeHtml(t.function?.name || t.name || '')}</div>
+          <div class="text-[10px] text-[#7A8C87] mt-1 leading-relaxed">${escapeHtml(t.function?.description || t.description || '')}</div>`;
+        tBox.appendChild(c);
+      });
+      lucide.createIcons();
+    }
+
+    async function loadMCPStatusLegacy() {
       const res1 = await fetch('/api/mcp/servers');
       const servers = await res1.json();
       const sBox = document.getElementById('mcp-servers-list');
