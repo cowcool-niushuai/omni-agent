@@ -636,76 +636,64 @@
     </div>
   </div>
 
-  <!-- 模态框：设置 -->
-  <div id="modal-settings" onclick="if(event.target===this) closeSettings()" class="fixed inset-0 bg-black/30 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
-    <div class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl w-full max-w-xl max-h-[90vh] shadow-xl flex flex-col overflow-hidden">
-      <div class="flex items-start justify-between gap-4 px-5 py-4 border-b border-[#F0F4F2]">
-        <div>
-          <h3 class="text-sm font-bold text-[#15201D] flex items-center gap-2"><i data-lucide="settings" class="w-4 h-4 text-[#267F68]"></i> 设置</h3>
-          <p class="text-[11px] text-[#7A8C87] mt-1">不常用的功能收在这里，主界面只保留工作台和文件。</p>
-        </div>
-        <button onclick="closeSettings()" class="text-[#7A8C87] hover:text-[#15201D] p-1 rounded-lg hover:bg-[#F5F8F7]" aria-label="关闭"><i data-lucide="x" class="w-4 h-4"></i></button>
-      </div>
-      <div class="px-5 py-4 overflow-y-auto space-y-5 text-xs">
-        <section>
-          <div class="text-[11px] font-semibold text-[#7A8C87] mb-2">当前模型</div>
-          <div class="flex items-center justify-between gap-3 rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] px-3 py-3">
-            <div class="min-w-0">
-              <div id="settings-model-label" class="font-semibold text-[#15201D] truncate">加载中…</div>
-              <div id="settings-model-ref" class="font-mono text-[10px] text-[#7A8C87] truncate mt-0.5"></div>
-              <div id="settings-model-state" class="text-[10px] text-[#7A8C87] mt-1"></div>
+  <!-- 全屏设置子页面 -->
+  <div id="settings-page" class="fixed inset-0 z-40 bg-[#F5F8F7] hidden">
+    <div class="h-full flex">
+      <aside class="w-60 shrink-0 bg-[#FFFFFF] border-r border-[#E3ECE9] flex flex-col">
+        <div class="px-4 py-4 border-b border-[#F0F4F2]">
+          <button onclick="closeSettings()" class="flex items-center gap-1.5 text-[11px] text-[#7A8C87] hover:text-[#15201D] px-2 py-1 rounded-lg hover:bg-[#F5F8F7] transition-all">
+            <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
+            <span>返回应用</span>
+          </button>
+          <div class="flex items-center gap-2 mt-3">
+            <span class="w-7 h-7 rounded-lg bg-[#15201D] text-[#59D6B3] flex items-center justify-center"><i data-lucide="settings" class="w-4 h-4"></i></span>
+            <div>
+              <h2 class="text-sm font-bold text-[#15201D]">设置</h2>
+              <p class="text-[10px] text-[#7A8C87]">OmniAgent 工作台</p>
             </div>
-            <button onclick="closeSettings(); openCustomModelModal()" class="shrink-0 px-3 py-1.5 rounded-xl bg-[#15201D] text-white text-[11px] font-semibold hover:bg-[#24322E]">切换模型</button>
           </div>
-        </section>
-
-        <section>
-          <div class="text-[11px] font-semibold text-[#7A8C87] mb-2">扩展功能</div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button onclick="openSettingsTab('memory')" class="group flex items-center gap-3 rounded-xl border border-[#E3ECE9] bg-[#FFFFFF] px-3 py-2.5 text-left hover:border-[#B8CCC6] hover:bg-[#FBFDFC] transition-all">
-              <span class="w-8 h-8 rounded-lg bg-[#EDF3F1] text-[#267F68] flex items-center justify-center shrink-0"><i data-lucide="database" class="w-4 h-4"></i></span>
-              <span class="min-w-0 flex-1"><span class="block font-semibold text-[#15201D]">记忆中枢</span><span class="block text-[10px] text-[#7A8C87] mt-0.5">长期记忆与知识库</span></span>
-              <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-[#9AA9A4] group-hover:text-[#267F68]"></i>
-            </button>
-            <button onclick="openSettingsTab('skills')" class="group flex items-center gap-3 rounded-xl border border-[#E3ECE9] bg-[#FFFFFF] px-3 py-2.5 text-left hover:border-[#B8CCC6] hover:bg-[#FBFDFC] transition-all">
-              <span class="w-8 h-8 rounded-lg bg-[#F3F0FF] text-[#6B5BD6] flex items-center justify-center shrink-0"><i data-lucide="sparkles" class="w-4 h-4"></i></span>
-              <span class="min-w-0 flex-1"><span class="block font-semibold text-[#15201D]">技能库</span><span class="block text-[10px] text-[#7A8C87] mt-0.5">管理与激活 SKILL.md</span></span>
-              <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-[#9AA9A4] group-hover:text-[#267F68]"></i>
-            </button>
-            <button onclick="openSettingsTab('mcp')" class="group flex items-center gap-3 rounded-xl border border-[#E3ECE9] bg-[#FFFFFF] px-3 py-2.5 text-left hover:border-[#B8CCC6] hover:bg-[#FBFDFC] transition-all">
-              <span class="w-8 h-8 rounded-lg bg-[#EDF3F1] text-[#267F68] flex items-center justify-center shrink-0"><i data-lucide="layers" class="w-4 h-4"></i></span>
-              <span class="min-w-0 flex-1"><span class="block font-semibold text-[#15201D]">MCP 服务</span><span class="block text-[10px] text-[#7A8C87] mt-0.5">外部工具与数据源</span></span>
-              <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-[#9AA9A4] group-hover:text-[#267F68]"></i>
-            </button>
-            <button onclick="openSettingsTab('schedules')" class="group flex items-center gap-3 rounded-xl border border-[#E3ECE9] bg-[#FFFFFF] px-3 py-2.5 text-left hover:border-[#B8CCC6] hover:bg-[#FBFDFC] transition-all">
-              <span class="w-8 h-8 rounded-lg bg-[#FFF7EA] text-[#A8752B] flex items-center justify-center shrink-0"><i data-lucide="calendar-clock" class="w-4 h-4"></i></span>
-              <span class="min-w-0 flex-1"><span class="block font-semibold text-[#15201D]">定时任务</span><span class="block text-[10px] text-[#7A8C87] mt-0.5">无人值守周期执行</span></span>
-              <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-[#9AA9A4] group-hover:text-[#267F68]"></i>
-            </button>
-            <button onclick="openSettingsTab('audit')" class="group flex items-center gap-3 rounded-xl border border-[#E3ECE9] bg-[#FFFFFF] px-3 py-2.5 text-left hover:border-[#B8CCC6] hover:bg-[#FBFDFC] transition-all">
-              <span class="w-8 h-8 rounded-lg bg-[#EDF3F1] text-[#267F68] flex items-center justify-center shrink-0"><i data-lucide="shield-check" class="w-4 h-4"></i></span>
-              <span class="min-w-0 flex-1"><span class="block font-semibold text-[#15201D]">审计记录</span><span class="block text-[10px] text-[#7A8C87] mt-0.5">工具调用与审批账本</span></span>
-              <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-[#9AA9A4] group-hover:text-[#267F68]"></i>
-            </button>
-            <button onclick="openSettingsTab('team')" class="group flex items-center gap-3 rounded-xl border border-[#E3ECE9] bg-[#FFFFFF] px-3 py-2.5 text-left hover:border-[#B8CCC6] hover:bg-[#FBFDFC] transition-all">
-              <span class="w-8 h-8 rounded-lg bg-[#EDF3F1] text-[#267F68] flex items-center justify-center shrink-0"><i data-lucide="users" class="w-4 h-4"></i></span>
-              <span class="min-w-0 flex-1"><span class="block font-semibold text-[#15201D]">团队管理</span><span class="block text-[10px] text-[#7A8C87] mt-0.5">成员、项目与 Token</span></span>
-              <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-[#9AA9A4] group-hover:text-[#267F68]"></i>
-            </button>
+        </div>
+        <nav id="settings-nav" class="flex-1 overflow-y-auto px-2 py-3 space-y-0.5"></nav>
+        <div class="px-4 py-3 border-t border-[#F0F4F2] text-[10px] text-[#7A8C87]">
+          <div class="truncate font-mono" id="settings-sidebar-version">v0.1.0</div>
+        </div>
+      </aside>
+      <section class="flex-1 min-w-0 flex flex-col">
+        <header class="h-16 shrink-0 border-b border-[#E3ECE9] bg-[#FFFFFF]/80 backdrop-blur-sm px-6 flex items-center justify-between gap-4">
+          <div class="min-w-0">
+            <h1 id="settings-section-title" class="text-sm font-bold text-[#15201D]">通用</h1>
+            <p id="settings-section-desc" class="text-[11px] text-[#7A8C87] mt-0.5 truncate">模型、运行环境与高级功能入口。</p>
           </div>
-        </section>
-
-        <section>
-          <div class="text-[11px] font-semibold text-[#7A8C87] mb-2">运行环境</div>
-          <div class="rounded-xl border border-[#E3ECE9] bg-[#F5F8F7] px-3 py-2.5 space-y-1.5 font-mono text-[10px] text-[#4A5568]">
-            <div class="flex items-center justify-between gap-3"><span class="text-[#7A8C87]">工作区</span><span id="settings-workspace-path" class="truncate">./workspace</span></div>
-            <div class="flex items-center justify-between gap-3"><span class="text-[#7A8C87]">服务版本</span><span id="settings-version">—</span></div>
+          <button onclick="closeSettings()" class="shrink-0 px-3 py-1.5 rounded-xl border border-[#E3ECE9] text-xs text-[#15201D] hover:bg-[#F5F8F7]">完成</button>
+        </header>
+        <div id="settings-content" class="flex-1 min-h-0 overflow-y-auto">
+          <div id="settings-general" class="max-w-4xl p-6 space-y-4">
+            <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+              <div class="text-[11px] font-semibold text-[#7A8C87] mb-2">当前模型</div>
+              <div class="flex items-center justify-between gap-3 rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] px-3 py-3">
+                <div class="min-w-0">
+                  <div id="settings-model-label" class="font-semibold text-[#15201D] truncate">加载中…</div>
+                  <div id="settings-model-ref" class="font-mono text-[10px] text-[#7A8C87] truncate mt-0.5"></div>
+                  <div id="settings-model-state" class="text-[10px] text-[#7A8C87] mt-1"></div>
+                </div>
+                <button onclick="openCustomModelModal()" class="shrink-0 px-3 py-1.5 rounded-xl bg-[#15201D] text-white text-[11px] font-semibold hover:bg-[#24322E]">切换模型</button>
+              </div>
+            </section>
+            <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+              <div class="text-[11px] font-semibold text-[#7A8C87] mb-2">运行环境</div>
+              <div class="rounded-xl border border-[#E3ECE9] bg-[#F5F8F7] px-3 py-2.5 space-y-1.5 font-mono text-[10px] text-[#4A5568]">
+                <div class="flex items-center justify-between gap-3"><span class="text-[#7A8C87]">工作区</span><span id="settings-workspace-path" class="truncate">./workspace</span></div>
+                <div class="flex items-center justify-between gap-3"><span class="text-[#7A8C87]">服务版本</span><span id="settings-version">—</span></div>
+              </div>
+            </section>
+            <section class="bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+              <div class="text-[11px] font-semibold text-[#7A8C87] mb-2">说明</div>
+              <p class="text-[11px] text-[#7A8C87] leading-relaxed">高级功能已收进左侧导航。主界面只保留工作台与工作区文件，返回后不会打断当前对话。</p>
+            </section>
           </div>
-        </section>
-      </div>
-      <div class="px-5 py-3 border-t border-[#F0F4F2] flex justify-end">
-        <button onclick="closeSettings()" class="px-4 py-1.5 rounded-xl border border-[#E3ECE9] text-xs text-[#15201D] hover:bg-[#F5F8F7]">关闭</button>
-      </div>
+          <div id="settings-host" class="hidden"></div>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -1425,23 +1413,99 @@
       lucide.createIcons();
     }
 
+    const SETTINGS_SECTIONS = [
+      { id: 'general', label: '通用', icon: 'settings-2', desc: '模型、运行环境与高级功能入口。' },
+      { id: 'memory', label: '记忆中枢', icon: 'database', desc: '长期记忆、用户偏好与项目知识库。' },
+      { id: 'skills', label: '技能库', icon: 'sparkles', desc: '管理与激活 SKILL.md 能力包。' },
+      { id: 'mcp', label: 'MCP 服务', icon: 'layers', desc: '连接外部 MCP Server 与工具数据源。' },
+      { id: 'schedules', label: '定时任务', icon: 'calendar-clock', desc: '无人值守的周期任务与运行记录。' },
+      { id: 'audit', label: '审计记录', icon: 'shield-check', desc: '工具调用、审批与安全审计账本。' },
+      { id: 'team', label: '团队管理', icon: 'users', desc: '成员、团队、项目与 API Token。' },
+    ];
+    const settingsPaneState = new Map();
+    let settingsSection = 'general';
+    let settingsReturnTab = 'chat';
+
+    function renderSettingsNav() {
+      const nav = document.getElementById('settings-nav');
+      nav.innerHTML = SETTINGS_SECTIONS.map(section => `
+        <button onclick="switchSettingsSection('${section.id}')" data-settings-nav="${section.id}" class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-[#7A8C87] hover:text-[#15201D] hover:bg-[#F2F6F5] transition-all">
+          <i data-lucide="${section.icon}" class="w-4 h-4"></i>
+          <span>${section.label}</span>
+        </button>
+      `).join('');
+    }
+
     function openSettings() {
-      const modal = document.getElementById('modal-settings');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
+      const page = document.getElementById('settings-page');
+      const visiblePrimary = ['chat', 'workspace'].find(tab => !document.getElementById(`tab-${tab}`).classList.contains('hidden'));
+      settingsReturnTab = visiblePrimary || 'chat';
+      page.classList.remove('hidden');
+      renderSettingsNav();
+      switchSettingsSection('general');
       updateSettingsInfo();
       lucide.createIcons();
     }
 
     function closeSettings() {
-      const modal = document.getElementById('modal-settings');
-      modal.classList.add('hidden');
-      modal.classList.remove('flex');
+      const page = document.getElementById('settings-page');
+      if (page.classList.contains('hidden')) return;
+      for (const record of settingsPaneState.values()) {
+        record.parent.appendChild(record.pane);
+        record.pane.className = record.className;
+      }
+      settingsPaneState.clear();
+      document.getElementById('settings-host').innerHTML = '';
+      page.classList.add('hidden');
+      switchTab(settingsReturnTab);
+      lucide.createIcons();
+    }
+
+    function switchSettingsSection(sectionId) {
+      const section = SETTINGS_SECTIONS.find(item => item.id === sectionId);
+      if (!section) return;
+      settingsSection = sectionId;
+      document.getElementById('settings-section-title').innerText = section.label;
+      document.getElementById('settings-section-desc').innerText = section.desc;
+      document.querySelectorAll('[data-settings-nav]').forEach(btn => {
+        const active = btn.dataset.settingsNav === sectionId;
+        btn.className = active
+          ? 'w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium bg-[#EDF3F1] text-[#15201D] transition-all'
+          : 'w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-[#7A8C87] hover:text-[#15201D] hover:bg-[#F2F6F5] transition-all';
+      });
+      const general = document.getElementById('settings-general');
+      const host = document.getElementById('settings-host');
+      general.classList.toggle('hidden', sectionId !== 'general');
+      host.classList.add('hidden');
+      for (const record of settingsPaneState.values()) record.pane.classList.add('hidden');
+      if (sectionId !== 'general') {
+        const pane = document.getElementById(`tab-${sectionId}`);
+        if (pane) {
+          if (!settingsPaneState.has(sectionId)) {
+            settingsPaneState.set(sectionId, {
+              pane,
+              parent: pane.parentElement,
+              className: pane.className,
+            });
+          }
+          pane.className = 'flex flex-col min-h-full p-6';
+          host.appendChild(pane);
+          host.classList.remove('hidden');
+          pane.classList.remove('hidden');
+        }
+      }
+      if (sectionId === 'audit') loadAudit();
+      if (sectionId === 'schedules') loadSchedules();
+      if (sectionId === 'memory') { loadMemories(); loadKnowledge(); }
+      if (sectionId === 'team') loadTeamData();
+      if (sectionId === 'skills' && typeof loadSkills === 'function') loadSkills();
+      if (sectionId === 'mcp' && typeof loadMCPStatus === 'function') loadMCPStatus();
+      document.getElementById('settings-content').scrollTop = 0;
+      lucide.createIcons();
     }
 
     function openSettingsTab(tab) {
-      closeSettings();
-      switchTab(tab);
+      switchSettingsSection(tab);
     }
 
     async function updateSettingsInfo() {
@@ -1464,6 +1528,8 @@
         if (workspace && info.workspace_dir) workspace.innerText = info.workspace_dir;
         const version = document.getElementById('settings-version');
         if (version && info.version) version.innerText = `v${info.version} · ${info.environment || ''}`;
+        const sidebarVersion = document.getElementById('settings-sidebar-version');
+        if (sidebarVersion && info.version) sidebarVersion.innerText = `v${info.version} · ${info.environment || ''}`;
       } catch (e) {}
     }
 
