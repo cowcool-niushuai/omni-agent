@@ -33,6 +33,7 @@ from omni_agent.config import get_settings
 from omni_agent.logging_config import configure_logging
 from omni_agent.security import PathSecurityError, safe_join
 from scheduler import scheduler
+from uploads import UploadError, save_attachment
 
 settings = get_settings()
 configure_logging(settings)
@@ -678,6 +679,29 @@ async def api_compact_session(session_id: str):
     _require_write()
     return await agent_core.compact_session(session_id)
 
+
+class UploadRequest(BaseModel):
+    filename: str
+    content_base64: str
+    session_id: str = ""
+
+
+@app.post("/api/uploads")
+async def api_upload_attachment(body: UploadRequest):
+    _require_write()
+    _require_scope("chat:write")
+    try:
+        return await run_in_threadpool(
+            save_attachment,
+            tenancy.current_workspace(),
+            body.filename,
+            body.content_base64,
+            session_id=body.session_id,
+            max_bytes=settings.attachment_max_bytes,
+        )
+    except UploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
 # 3. Realtime SSE Streaming Chat Endpoint
 class ChatRequest(BaseModel):
     session_id: str
@@ -776,7 +800,7 @@ def _scan_workspace() -> list[dict]:
     items = []
     workspace = tenancy.current_workspace().resolve()
     for root, dirs, files in os.walk(workspace):
-        dirs[:] = [entry for entry in dirs if entry not in {".home", ".tmp"}]
+        dirs[:] = [entry for entry in dirs if entry not in {".home", ".tmp", ".uploads"}]
         rel_root = os.path.relpath(root, workspace)
         prefix = "" if rel_root == "." else rel_root + "/"
         for d in dirs:

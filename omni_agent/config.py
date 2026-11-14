@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     retrieval_hybrid_weight: float = 0.7
     retrieval_embedding_dim: int = 256
     max_file_write_bytes: int = 10 * 1024 * 1024
+    attachment_max_bytes: int = 20 * 1024 * 1024
+    attachment_max_files: int = 5
 
     web_fetch_timeout_seconds: float = 10.0
     web_fetch_max_bytes: int = 2_000_000

@@ -91,7 +91,7 @@ def tool_file_list(directory: str = ".") -> str:
 
     entries: list[str] = []
     for root, dirs, files in os.walk(target_dir):
-        dirs[:] = [entry for entry in dirs if entry not in {".home", ".tmp"}]
+        dirs[:] = [entry for entry in dirs if entry not in {".home", ".tmp", ".uploads"}]
         rel_root = os.path.relpath(root, _workspace_path())
         prefix = "" if rel_root == "." else rel_root + "/"
         for entry in dirs:
