@@ -309,8 +309,9 @@ make desktop
 ```bash
 make desktop-test    # Electron 后端管理单元测试
 make desktop-smoke   # 无界面截图冒烟测试
-make desktop-pack    # 生成未压缩应用目录
-make desktop-dist    # 生成 Linux AppImage + deb
+make desktop-backend # 用 PyInstaller 构建内嵌 Python 后端
+make desktop-pack    # 构建后端 + 生成未压缩应用目录
+make desktop-dist    # 构建后端 + 生成 Linux AppImage + deb
 ```
 
 桌面端环境变量：
@@ -318,11 +319,12 @@ make desktop-dist    # 生成 Linux AppImage + deb
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `OMNI_DESKTOP_PORT` | `8001` | 后端端口 |
-| `OMNI_DESKTOP_REPO_ROOT` | 仓库根目录 | Python 后端源码目录 |
-| `OMNI_DESKTOP_PYTHON` | 仓库 `.venv` Python | 启动后端使用的解释器 |
+| `OMNI_DESKTOP_REPO_ROOT` | 仓库根目录 | 开发模式下的 Python 后端源码目录 |
+| `OMNI_DESKTOP_PYTHON` | 仓库 `.venv` Python | 开发模式启动后端使用的解释器 |
 | `OMNI_DESKTOP_BACKEND` | 空 | 直接指定后端可执行文件，优先级最高 |
+| `OMNI_DESKTOP_USER_DATA` | 系统用户数据目录 | 打包版数据、工作区、模型与 MCP 配置存放位置 |
 
-当前限制：AppImage/deb **尚未内嵌 Python 后端**，安装包需要目标机器已有后端，或通过 `OMNI_DESKTOP_BACKEND` 指定独立后端。开发模式直接复用仓库 `.venv`。完整说明见 [`desktop/README.md`](desktop/README.md)。
+打包版默认**内嵌 PyInstaller 构建的 Python 后端**，最终用户无需安装 Python。`npm run pack` / `npm run dist` 会先执行 `npm run backend:build`，再把 onedir 后端放进 Electron 的 `resources/backend`。运行时数据写入系统用户数据目录（Linux 为 `~/.local/share/OmniAgent`），升级或重装不会覆盖会话、工作区和密钥。开发模式仍直接复用仓库 `.venv`；需要自定义后端时可用 `OMNI_DESKTOP_BACKEND` 覆盖。完整说明见 [`desktop/README.md`](desktop/README.md)。
 
 ---
 

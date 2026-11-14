@@ -27,8 +27,12 @@ from provider_adapters import (
 )
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = BASE_DIR / "model_config.json"
-ENV_PATH = BASE_DIR / ".env"
+CONFIG_PATH = Path(
+    os.environ.get("OMNI_MODEL_CONFIG_PATH") or (BASE_DIR / "model_config.json")
+).expanduser()
+ENV_PATH = Path(os.environ.get("OMNI_ENV_PATH") or (BASE_DIR / ".env")).expanduser()
+CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 load_dotenv(ENV_PATH)
 

@@ -31,6 +31,7 @@ dev = [
     "ruff>=0.8,<1.0",
     "mypy>=1.13,<2.0",
     "pre-commit>=4.0,<5.0",
+    "pyinstaller>=6.0,<7.0",
 ]
 
 [tool.uv]
@@ -39,7 +40,7 @@ package = false
 [tool.ruff]
 line-length = 120
 target-version = "py312"
-extend-exclude = ["workspace", "data", ".venv", "static"]
+extend-exclude = ["workspace", "data", ".venv", "static", "desktop"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "ASYNC"]

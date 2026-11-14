@@ -127,13 +127,13 @@ class BackendManager {
 
     if (this.packaged) {
       const binary = process.platform === 'win32'
-        ? path.join(process.resourcesPath, 'backend', 'omni-agent-server.exe')
-        : path.join(process.resourcesPath, 'backend', 'omni-agent-server');
+        ? path.join(process.resourcesPath, 'backend', 'omni-agent-server', 'omni-agent-server.exe')
+        : path.join(process.resourcesPath, 'backend', 'omni-agent-server', 'omni-agent-server');
       if (fs.existsSync(binary)) {
         return {
           command: binary,
           args: ['--host', '127.0.0.1', '--port', String(this.port)],
-          cwd: this.repoRoot,
+          cwd: this.appData,
         };
       }
       throw new BackendError(
@@ -188,10 +188,25 @@ class BackendManager {
       `\n[${new Date().toISOString()}] starting ${command} ${args.join(' ')}\n`,
     );
 
+    const userData = this.appData;
+    const packagedEnv = this.packaged
+      ? {
+          OMNI_DESKTOP_USER_DATA: userData,
+          OMNI_USER_DATA_DIR: userData,
+          DATA_DIR: path.join(userData, 'data'),
+          WORKSPACE_DIR: path.join(userData, 'workspace'),
+          OMNI_DB_PATH: path.join(userData, 'data', 'omni_agent.db'),
+          OMNI_MODEL_CONFIG_PATH: path.join(userData, 'model_config.json'),
+          OMNI_ENV_PATH: path.join(userData, '.env'),
+          OMNI_MCP_CONFIG_PATH: path.join(userData, 'mcp_config.json'),
+        }
+      : {};
+
     this.child = spawn(command, args, {
       cwd,
       env: {
         ...this.env,
+        ...packagedEnv,
         PYTHONUNBUFFERED: '1',
         PYTHONPATH: [cwd, this.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
         OMNI_DESKTOP: '1',

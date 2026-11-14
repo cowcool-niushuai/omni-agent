@@ -39,7 +39,9 @@ from mcp.client.stdio import stdio_client
 from omni_agent.config import get_settings
 from omni_agent.security.limits import truncate_text
 
-MCP_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "mcp_config.json")
+MCP_CONFIG_FILE = os.environ.get("OMNI_MCP_CONFIG_PATH") or os.path.join(
+    os.path.dirname(__file__), "mcp_config.json"
+)
 
 DEFAULT_CONFIG = {
     "mcpServers": {

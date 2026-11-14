@@ -21,7 +21,9 @@ from omni_agent.tenancy import (
     project_workspace,
 )
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "omni_agent.db")
+DB_PATH = os.environ.get("OMNI_DB_PATH") or os.path.join(
+    os.path.dirname(__file__), "omni_agent.db"
+)
 
 SCHEDULE_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 PBKDF2_ITERATIONS = 260_000

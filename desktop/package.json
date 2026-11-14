@@ -3,15 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "description": "OmniAgent desktop client",
-  "author": "OmniAgent",
+  "homepage": "https://github.com/omni-agent/omni-agent",
+  "author": {
+    "name": "OmniAgent Maintainers",
+    "email": "maintainers@omniagent.dev"
+  },
   "license": "MIT",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
     "test": "node --test test/*.test.js",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder --linux AppImage deb"
+    "backend:build": "bash build_backend.sh",
+    "pack": "npm run backend:build && electron-builder --dir",
+    "dist": "npm run backend:build && electron-builder --linux AppImage deb"
   },
   "devDependencies": {
     "electron": "^45.3.2",
@@ -31,6 +36,15 @@
       "splash-preload.js",
       "renderer/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "linux": {
       "target": [

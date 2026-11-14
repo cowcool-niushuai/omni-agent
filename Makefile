@@ -1,5 +1,5 @@
 .PHONY: install dev test lint fmt typecheck check frontend docker-build docker-up docker-down \
-	desktop-install desktop desktop-test desktop-smoke desktop-pack desktop-dist
+	desktop-install desktop desktop-test desktop-smoke desktop-backend desktop-pack desktop-dist
 
 install:
 	uv sync --all-groups
@@ -35,6 +35,9 @@ desktop-test:
 
 desktop-smoke:
 	cd desktop && env -u ELECTRON_RUN_AS_NODE npx electron . --smoke-test
+
+desktop-backend:
+	cd desktop && ./build_backend.sh
 
 desktop-pack:
 	cd desktop && npm run pack
