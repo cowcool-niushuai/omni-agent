@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 model_config.json
+mcp_config.json
 omni_agent.db
 *.db
 *.db-wal

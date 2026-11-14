@@ -1,0 +1,53 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please redact API keys, tokens, passwords,
+        local databases, and private files from logs and screenshots.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A clear description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the server with ...
+        2. Send this message ...
+        3. Click ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, browser/desktop mode, model provider, sandbox backend.
+      placeholder: |
+        OS:
+        Python:
+        Web / Desktop / CLI:
+        Sandbox backend:
+        Model:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Redact secrets and personal data first.
+    validations:
+      required: false

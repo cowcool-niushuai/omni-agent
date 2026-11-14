@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  check:
+  python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,3 +17,36 @@ jobs:
       - run: uv run ruff check .
       - run: uv run mypy
       - run: uv run pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Check inline console JavaScript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("static/index.html").read_text(encoding="utf-8")
+          scripts = re.findall(r"<script[^>]*>(.*?)</script>", html, re.S)
+          Path("/tmp/omni-inline.js").write_text("\n".join(scripts), encoding="utf-8")
+          print(f"extracted {len(scripts)} inline script(s)")
+          PY
+          node --check /tmp/omni-inline.js
+      - name: Check desktop JavaScript
+        run: |
+          node --check desktop/main.js
+          node --check desktop/backend.js
+          node --check desktop/preload.js
+          node --check desktop/splash-preload.js
+      - name: Desktop unit tests
+        run: |
+          cd desktop
+          npm ci --no-audit --no-fund
+          npm test

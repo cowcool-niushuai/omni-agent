@@ -897,7 +897,7 @@ uv run mypy
 
 - `pytest`：181 passed
 - `ruff`：All checks passed
-- `mypy`：Success，15 source files
+- `mypy`：Success，16 source files
 
 测试覆盖包括：路径穿越、命令白名单与 shell 绕过、沙箱超时/输出上限/环境变量清洗、SSRF（回环/元数据/私网/端口）、密钥不泄露、技能 ID 校验、API 冒烟、真流式、工具调用、审批批准/拒绝、自动拒绝模式、checkpoint 恢复、上下文压缩、审计脱敏与统计、BM25 中文检索、记忆/知识 CRUD、记忆 upsert 与提示词召回、定时任务 CRUD/到期判定/无人值守执行/中断恢复、官方 MCP SDK 工具发现与调用、MCP 配置校验/增删改/启停/测试/热重载、浏览器参数校验/私网拦截/交互审批、Provider/Model Registry 迁移、`provider/model` 选择、Anthropic 消息/工具/流式转换、模型发现与连接探测、会话搜索/重命名/清空/删除/导出、自动标题、API Token 保护、密码哈希、登录与 CSRF、项目隔离、跨项目访问拒绝、viewer 只读、Token 作用域、审批请求项目隔离、最后一个管理员保护、工具参数契约与非法参数拦截、工具错误分类、幂等重试策略、计划规范化与验证规则、验证器修复循环、计划 API 与 UI、全访问模式转换、受保护路径与权限策略 API 往返、附件上传路径/文件名清洗/大小限制、图片多模态内容块与 Anthropic 图片转换、默认推理步数上限、PDF/Word/Excel/PPT 文本提取、外部 Git 仓库根目录与权限校验。
 
@@ -916,10 +916,13 @@ uv run mypy
 | Phase 4.2 | ✅ 完成 | Electron 桌面客户端：原生窗口、托盘、启动画面、后端自动拉起与日志、窗口状态记忆 |
 | Phase 4.3 | ✅ 完成 | 可靠性增强：持久计划、工具契约与幂等重试、混合检索、结构化摘要、证据验证器 |
 | Phase 4 | 🚧 进行中 | 企业级平台：内嵌后端安装包、文件/预览、可观测性、Docker/备份、插件与 SDK |
-| Phase 5 | 计划中 | 开源发布：LICENSE、文档、示例、CI Release |
+| Phase 5 | 🚧 准备中 | 开源发布：LICENSE、社区文档、CI Release、GitHub 仓库与 Release |
 
 ---
 
-## License
+## 贡献、安全与许可
 
-License 将在开源发布阶段补充（计划 MIT 或 Apache-2.0）。
+- 贡献指南：[CONTRIBUTING.md](CONTRIBUTING.md)
+- 安全问题请通过 [SECURITY.md](SECURITY.md) 私下报告，不要公开 Issue
+- 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- 本项目采用 [MIT License](LICENSE)

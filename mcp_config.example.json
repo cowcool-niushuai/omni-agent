@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "sqlite_database": {
+      "command": "python3",
+      "args": [
+        "mcp_servers/sqlite_mcp.py"
+      ],
+      "description": "SQLite 核心数据持久化 MCP 服务，支持查询表结构、统计数据和只读检索",
+      "enabled": true
+    }
+  }
+}
