@@ -262,7 +262,7 @@ uv run playwright install chromium
 - `POST /api/models/discover`：从 OpenAI 兼容端点或 Ollama 发现模型并写入注册表
 - `POST /api/models/custom`：新增自定义 provider / 模型，可指定适配器
 
-Web UI 的模型配置弹窗已支持厂商预设、适配器选择、连接测试和模型发现。
+Web UI 的模型配置弹窗已支持厂商预设、适配器选择、连接测试和模型发现。输入框底部的模型名称可以直接点击，在当前对话内切换模型，无需回到设置页。
 
 > Google Gemini 目前使用其 OpenAI 兼容端点；Anthropic 使用原生适配器。OAuth、ChatGPT/Copilot 登录和 models.dev 全量目录不在当前范围内。
 
@@ -511,7 +511,7 @@ PATCH /api/security/policy
 
 ### 20. 对话附件与拖拽上传
 
-输入框左侧有附件按钮，也可以把文件直接拖进输入框：
+首页输入框和对话输入框都支持附件；左侧有附件按钮，也可以把文件直接拖进输入框：
 
 - 支持多文件，默认最多 5 个
 - 单文件默认上限 20MB

@@ -194,17 +194,22 @@
           <h1 class="text-2xl font-bold text-[#15201D] mb-8 tracking-tight">我们该做什么？</h1>
 
           <!-- Codex 风格输入主卡片 -->
-          <div class="w-full bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm hover:border-[#CDDED8] transition-all mb-4">
+          <div id="hero-card" class="w-full bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm hover:border-[#CDDED8] transition-all mb-4 relative">
             <textarea
               id="hero-input"
               rows="3"
-              placeholder="随心输入..."
+              placeholder="随心输入...  可粘贴图片"
               class="w-full bg-transparent border-0 focus:outline-none text-sm text-[#15201D] placeholder-[#9CA3AF] resize-none"
               onkeydown="handleHeroKeyDown(event)"
             ></textarea>
+            <div id="hero-attachments" class="hidden flex flex-wrap gap-1.5 pb-1.5"></div>
+            <input id="hero-file-input" type="file" multiple class="hidden" onchange="handleAttachmentInput(event)">
             
             <div class="flex items-center justify-between pt-2 border-t border-[#F0F4F2] mt-2">
               <div class="flex items-center gap-2 text-xs text-[#7A8C87] relative">
+                <button onclick="document.getElementById('hero-file-input').click()" class="p-1.5 rounded-lg hover:bg-[#F2F6F5] text-[#7A8C87] hover:text-[#15201D] transition-all" title="添加附件" aria-label="添加附件">
+                  <i data-lucide="paperclip" class="w-4 h-4"></i>
+                </button>
                 <button onclick="openCustomModelModal()" class="p-1.5 rounded-lg hover:bg-[#F2F6F5] text-[#7A8C87] hover:text-[#15201D] transition-all" title="配置 API Key / 自定义模型">
                   <i data-lucide="sliders" class="w-4 h-4"></i>
                 </button>
@@ -311,7 +316,21 @@
                 <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
                 <span id="composer-permission-label" class="hidden sm:inline text-[9px] font-semibold">询问</span>
               </button>
-              <span id="chat-model-badge" class="font-mono text-[11px] px-2 py-0.5 rounded bg-[#F5F8F7] text-[#15201D] shrink-0">DeepSeek-V3</span>
+              <div class="relative shrink-0">
+                <button id="chat-model-badge" type="button" onclick="toggleComposerModelDropdown(event)" title="切换当前对话使用的模型" class="flex items-center gap-1 font-mono text-[11px] px-2 py-0.5 rounded bg-[#F5F8F7] hover:bg-[#EDF3F1] text-[#15201D] transition-colors">
+                  <span id="chat-model-label">DeepSeek-V3</span>
+                  <i data-lucide="chevron-down" class="w-3 h-3 text-[#7A8C87]"></i>
+                </button>
+                <div id="composer-model-dropdown" class="hidden absolute left-0 bottom-8 mb-1 w-72 max-h-[70vh] overflow-hidden bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl shadow-xl py-1.5 z-50 text-xs">
+                  <div class="px-3 py-1 text-[10px] font-semibold text-[#7A8C87] uppercase tracking-wider">切换当前对话模型</div>
+                  <div id="composer-model-dropdown-items" class="max-h-72 overflow-y-auto space-y-0.5 px-1"></div>
+                  <div class="border-t border-[#E3ECE9] mt-1.5 pt-1 px-1">
+                    <button onclick="openCustomModelModal()" class="w-full text-left px-2.5 py-1.5 text-xs text-[#267F68] font-semibold hover:bg-[#F5F8F7] rounded-lg flex items-center gap-1.5">
+                      <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> 配置 API Key / 新厂商
+                    </button>
+                  </div>
+                </div>
+              </div>
               <div id="composer-context" class="flex items-center gap-1.5 min-w-0" title="当前上下文用量">
                 <span class="text-[9px] text-[#9AA9A4] shrink-0">上下文</span>
                 <div class="w-14 h-1.5 rounded-full bg-[#E8F0ED] overflow-hidden shrink-0">
@@ -1377,10 +1396,11 @@
     }
 
     function renderComposerAttachments() {
-      const box = document.getElementById('composer-attachments');
-      if (!box) return;
-      box.classList.toggle('hidden', pendingAttachments.length === 0);
-      box.innerHTML = pendingAttachments.map(item => {
+      const boxes = ['composer-attachments', 'hero-attachments']
+        .map(id => document.getElementById(id))
+        .filter(Boolean);
+      if (!boxes.length) return;
+      const html = pendingAttachments.map(item => {
         const image = String(item.file?.type || '').startsWith('image/');
         return `
         <div class="flex items-center gap-1.5 max-w-[230px] pl-2 pr-1 py-1 rounded-lg bg-[#F5F8F7] border border-[#E3ECE9] text-[10px] text-[#4A5568]">
@@ -1392,6 +1412,10 @@
           </button>
         </div>`;
       }).join('');
+      boxes.forEach(box => {
+        box.classList.toggle('hidden', pendingAttachments.length === 0);
+        box.innerHTML = html;
+      });
       lucide.createIcons();
     }
 
@@ -1480,7 +1504,7 @@
           body: JSON.stringify({
             filename: item.name,
             content_base64: contentBase64,
-            session_id: currentSessionId,
+            session_id: currentSessionId || '',
           }),
         });
         if (!response.ok) {
@@ -1511,9 +1535,9 @@
         resizeComposer(el);
       });
       const card = document.getElementById('composer-card');
+      const hasFiles = event => Array.from(event.dataTransfer?.types || []).includes('Files');
       if (card) {
         card.addEventListener('paste', handleComposerPaste);
-        const hasFiles = event => Array.from(event.dataTransfer?.types || []).includes('Files');
         card.addEventListener('dragenter', event => {
           if (!hasFiles(event)) return;
           event.preventDefault();
@@ -1532,6 +1556,20 @@
           if (!hasFiles(event)) return;
           event.preventDefault();
           showComposerDropOverlay(false);
+          addPendingAttachments(event.dataTransfer.files);
+        });
+      }
+      const heroCard = document.getElementById('hero-card');
+      if (heroCard) {
+        heroCard.addEventListener('paste', handleComposerPaste);
+        heroCard.addEventListener('dragover', event => {
+          if (!hasFiles(event)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        });
+        heroCard.addEventListener('drop', event => {
+          if (!hasFiles(event)) return;
+          event.preventDefault();
           addPendingAttachments(event.dataTransfer.files);
         });
       }
@@ -1739,7 +1777,7 @@
       const short = String(label || 'DeepSeek').split(' ')[0];
       const active = document.getElementById('active-model-label');
       const sidebar = document.getElementById('sidebar-model-badge');
-      const chat = document.getElementById('chat-model-badge');
+      const chat = document.getElementById('chat-model-label');
       if (active) active.innerText = short;
       if (sidebar) sidebar.innerText = short;
       if (chat) chat.innerText = short;
@@ -1759,35 +1797,39 @@
     }
 
     function renderModelDropdown() {
-      const container = document.getElementById('model-dropdown-items');
-      if (!container) return;
-      container.innerHTML = '';
+      const containers = ['model-dropdown-items', 'composer-model-dropdown-items']
+        .map(id => document.getElementById(id))
+        .filter(Boolean);
+      if (!containers.length) return;
       const groups = new Map();
       allModels.forEach(m => {
         const key = m.provider_name || m.provider_key || '其他';
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(m);
       });
-      groups.forEach((models, providerName) => {
-        const header = document.createElement('div');
-        header.className = "px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[#7A8C87]";
-        header.innerText = providerName;
-        container.appendChild(header);
-        models.forEach(m => {
-          const item = document.createElement('div');
-          item.className = "flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#F5F8F7] cursor-pointer text-xs transition-all";
-          item.innerHTML = `
-            <div class="flex flex-col truncate pr-2">
-              <span class="font-medium text-[#15201D] truncate">${m.label}</span>
-              <span class="text-[10px] text-[#7A8C87] font-mono truncate">${m.ref || m.id} · ${m.adapter || 'openai-compatible'}</span>
-            </div>
-            ${m.is_active ? '<i data-lucide="check" class="w-3.5 h-3.5 text-[#267F68] shrink-0"></i>' : ''}
-          `;
-          item.onclick = (e) => {
-            e.stopPropagation();
-            selectModel(m.ref || m.id);
-          };
-          container.appendChild(item);
+      containers.forEach(container => {
+        container.innerHTML = '';
+        groups.forEach((models, providerName) => {
+          const header = document.createElement('div');
+          header.className = "px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[#7A8C87]";
+          header.innerText = providerName;
+          container.appendChild(header);
+          models.forEach(m => {
+            const item = document.createElement('div');
+            item.className = "flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#F5F8F7] cursor-pointer text-xs transition-all";
+            item.innerHTML = `
+              <div class="flex flex-col truncate pr-2">
+                <span class="font-medium text-[#15201D] truncate">${m.label}</span>
+                <span class="text-[10px] text-[#7A8C87] font-mono truncate">${m.ref || m.id} · ${m.adapter || 'openai-compatible'}</span>
+              </div>
+              ${m.is_active ? '<i data-lucide="check" class="w-3.5 h-3.5 text-[#267F68] shrink-0"></i>' : ''}
+            `;
+            item.onclick = (e) => {
+              e.stopPropagation();
+              selectModel(m.ref || m.id);
+            };
+            container.appendChild(item);
+          });
         });
       });
       lucide.createIcons();
@@ -1799,10 +1841,22 @@
       d.classList.toggle('hidden');
     }
 
+    function toggleComposerModelDropdown(e) {
+      if (e) e.stopPropagation();
+      const d = document.getElementById('composer-model-dropdown');
+      if (d) d.classList.toggle('hidden');
+    }
+
     document.addEventListener('click', (e) => {
       const d = document.getElementById('model-dropdown');
       if (d && !d.classList.contains('hidden') && !d.contains(e.target)) {
         d.classList.add('hidden');
+      }
+      const composerDropdown = document.getElementById('composer-model-dropdown');
+      const composerButton = document.getElementById('chat-model-badge');
+      if (composerDropdown && !composerDropdown.classList.contains('hidden')
+          && !composerDropdown.contains(e.target) && !composerButton?.contains(e.target)) {
+        composerDropdown.classList.add('hidden');
       }
       const slash = document.getElementById('slash-menu');
       const chatInput = document.getElementById('chat-input');
@@ -1832,8 +1886,10 @@
         });
         const data = await res.json();
         if (data.active) setActiveModelBadges(data.active.label);
-        const d = document.getElementById('model-dropdown');
-        if (d) d.classList.add('hidden');
+        ['model-dropdown', 'composer-model-dropdown'].forEach(id => {
+          const d = document.getElementById(id);
+          if (d) d.classList.add('hidden');
+        });
         loadModels();
       } catch(e) {
         alert("切换模型失败: " + e);
@@ -3663,12 +3719,22 @@
       executePrompt(text);
     }
 
-    function sendHeroMessage() {
+    async function sendHeroMessage() {
       const input = document.getElementById('hero-input');
       const text = input.value.trim();
-      if (!text) return;
-      input.value = '';
-      executePrompt(text);
+      if ((!text && pendingAttachments.length === 0) || isStreaming || pendingPermission) return;
+      setComposerBusy(true);
+      try {
+        const uploaded = await uploadPendingAttachments();
+        const message = text + buildAttachmentContext(uploaded);
+        const displayText = text || (uploaded.length ? '已添加附件' : '');
+        input.value = '';
+        clearPendingAttachments();
+        await executePrompt(message, displayText, uploaded);
+      } catch (err) {
+        setComposerBusy(false);
+        toast(`附件上传失败：${err.message || err}`, 'error');
+      }
     }
 
     async function sendChatMessage() {
