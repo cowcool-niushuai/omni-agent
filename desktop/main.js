@@ -140,6 +140,7 @@ function createMainWindow() {
     icon: ICON_PATH,
     autoHideMenuBar: true,
     webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -391,6 +392,15 @@ async function bootstrap() {
     bootstrapping = false;
   }
 }
+
+ipcMain.handle('omni:pick-folder', async () => {
+  const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  const result = await dialog.showOpenDialog(owner, {
+    title: '选择项目文件夹',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  return result.canceled ? null : result.filePaths[0] || null;
+});
 
 ipcMain.handle('omni:retry', () => bootstrap());
 ipcMain.handle('omni:open-logs', () => {

@@ -149,7 +149,7 @@ class Scheduler:
             user_id=str(task.get("owner_id") or tenancy.DEFAULT_USER_ID),
             project_id=project_id,
             team_id=tenancy.get_context().team_id,
-            workspace=tenancy.project_workspace(project_id),
+            workspace=database.get_project_workspace(project_id),
             role="member",
             team_role="member",
             scopes=frozenset({"*"}),

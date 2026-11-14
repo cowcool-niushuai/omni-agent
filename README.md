@@ -299,6 +299,32 @@ GET    /api/sessions/{id}/export
 GET    /api/system/info
 ```
 
+### 14.1 选择本地文件夹作为项目
+
+开始界面可以直接选择项目：
+
+- 点击「选择项目」查看最近项目，支持按名称和路径搜索
+- 点击「打开本地文件夹…」选择任意已有目录
+- 桌面端使用 Electron 原生文件夹选择器；Web 端回退为输入绝对路径
+- 选中的目录会注册为项目，并记录在 `projects.workspace_path`
+- 后续会话、Agent 写入的文件、附件、Git 操作和沙箱工作目录都以该目录为根
+
+隔离与安全：
+
+- 自定义项目文件夹需要管理员权限
+- 必须是已存在、可写的绝对路径
+- `/etc`、`/root`、`/usr`、`/opt`、`/proc`、`/sys` 等系统目录会被拒绝
+- 同一目录重复打开会复用已有项目，不会重复创建
+- 默认项目继续使用原来的 `workspace/`，不影响已有文件
+
+相关 API：
+
+```text
+GET  /api/projects
+POST /api/projects            # 可带 workspace_path
+POST /api/projects/open-folder  # {path, name?}
+```
+
 ### 15. 团队版：身份、RBAC 与项目隔离
 
 默认仍是**本地单管理员模式**，不改变原有使用方式。设置：
@@ -847,7 +873,7 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：174 passed
+- `pytest`：176 passed
 - `ruff`：All checks passed
 - `mypy`：Success，15 source files
 

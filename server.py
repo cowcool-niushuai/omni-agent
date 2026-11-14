@@ -32,6 +32,10 @@ from omni_agent import tenancy
 from omni_agent.config import get_settings
 from omni_agent.logging_config import configure_logging
 from omni_agent.security import PathSecurityError, safe_join
+from omni_agent.security.workspace_folders import (
+    WorkspaceFolderError,
+    validate_workspace_folder,
+)
 from scheduler import scheduler
 from uploads import UploadError, save_attachment
 
@@ -249,7 +253,7 @@ def _build_context(identity: dict, request: Request) -> tenancy.TenantContext:
         user_id=user_id,
         project_id=project_id,
         team_id=team_id,
-        workspace=tenancy.project_workspace(project_id),
+        workspace=database.get_project_workspace(project_id),
         role=effective_role,
         team_role=str(access.get("team_role") if access else "member"),
         scopes=frozenset(identity.get("scopes") or {"*"}),
@@ -1369,6 +1373,12 @@ class ProjectCreateRequest(BaseModel):
     team_id: Optional[str] = None
     name: str
     description: str = ""
+    workspace_path: Optional[str] = None
+
+
+class ProjectOpenRequest(BaseModel):
+    path: str
+    name: Optional[str] = None
 
 
 class ProjectUpdateRequest(BaseModel):
@@ -1532,12 +1542,45 @@ async def api_create_project(body: ProjectCreateRequest):
     if not database.get_team(team_id):
         raise HTTPException(status_code=400, detail="团队不存在")
     _require_team_admin(team_id)
+    workspace_path = body.workspace_path
+    if workspace_path:
+        _require_admin()
+        existing = database.find_project_by_workspace(workspace_path)
+        if existing:
+            return existing
     try:
         return database.create_project(
             team_id,
             body.name,
             ctx.user_id,
             description=body.description,
+            workspace_path=workspace_path,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/projects/open-folder")
+async def api_open_project_folder(body: ProjectOpenRequest):
+    ctx = _require_admin()
+    try:
+        folder = validate_workspace_folder(body.path)
+    except WorkspaceFolderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    existing = database.find_project_by_workspace(folder)
+    if existing:
+        return existing
+    team_id = ctx.team_id or tenancy.DEFAULT_TEAM_ID
+    if not database.get_team(team_id):
+        team_id = tenancy.DEFAULT_TEAM_ID
+    name = (body.name or folder.name or "项目").strip()[:100] or "项目"
+    try:
+        return database.create_project(
+            team_id,
+            name,
+            ctx.user_id,
+            description=str(folder),
+            workspace_path=str(folder),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -235,7 +235,7 @@ class AgentRuntime:
             user_id=str(state.get("user_id") or base.user_id),
             project_id=project_id,
             team_id=str(state.get("team_id") or base.team_id),
-            workspace=tenancy.project_workspace(project_id),
+            workspace=database.get_project_workspace(project_id),
             role=str(state.get("role") or base.role),
             team_role=str(state.get("team_role") or base.team_role),
             scopes=frozenset(state.get("scopes") or base.scopes),

@@ -33,6 +33,7 @@
     "files": [
       "main.js",
       "backend.js",
+      "preload.js",
       "splash-preload.js",
       "renderer/**/*",
       "package.json"

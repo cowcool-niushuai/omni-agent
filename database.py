@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 import retrieval
+from omni_agent.security.workspace_folders import validate_workspace_folder
 from omni_agent.tenancy import (
     DEFAULT_PROJECT_ID,
     DEFAULT_TEAM_ID,
@@ -276,6 +277,7 @@ def init_db():
         ("sessions", "owner_id", "TEXT"),
         ("sessions", "project_id", "TEXT"),
         ("sessions", "model", "TEXT"),
+        ("projects", "workspace_path", "TEXT"),
         ("memories", "project_id", "TEXT"),
         ("knowledge_docs", "project_id", "TEXT"),
         ("permission_requests", "project_id", "TEXT"),
@@ -844,6 +846,7 @@ def create_project(
     created_by: str,
     *,
     description: str = "",
+    workspace_path: str | os.PathLike[str] | None = None,
 ) -> Dict[str, Any]:
     name = name.strip()
     if not name:
@@ -852,24 +855,65 @@ def create_project(
         raise ValueError("项目名称过长（上限 100 字符）")
     if not get_team(team_id):
         raise ValueError("团队不存在")
+    folder = ""
+    if workspace_path:
+        folder = str(validate_workspace_folder(workspace_path))
     pid = "prj_" + uuid.uuid4().hex[:10]
     now = _utc_stamp()
     conn = get_db()
     try:
         conn.execute(
             "INSERT INTO projects "
-            "(id, team_id, name, description, status, created_by, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, 'active', ?, ?, ?)",
-            (pid, team_id, name, description.strip()[:500], created_by, now, now),
+            "(id, team_id, name, description, status, created_by, created_at, "
+            "updated_at, workspace_path) "
+            "VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
+            (
+                pid,
+                team_id,
+                name,
+                description.strip()[:500],
+                created_by,
+                now,
+                now,
+                folder or None,
+            ),
         )
         conn.commit()
     finally:
         conn.close()
-    project_workspace(pid)
+    if not folder:
+        project_workspace(pid)
     project = get_project(pid)
     if not project:
         raise RuntimeError("项目创建失败")
     return project
+
+
+def get_project_workspace(project_id: str) -> Path:
+    """Return the project's registered folder, or its isolated default."""
+    project = get_project(project_id)
+    configured = str((project or {}).get("workspace_path") or "").strip()
+    if configured:
+        folder = Path(configured).expanduser().resolve()
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+    return project_workspace(project_id)
+
+
+def find_project_by_workspace(workspace_path: str | os.PathLike[str]) -> Optional[Dict[str, Any]]:
+    folder = str(Path(workspace_path).expanduser().resolve())
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT p.*, t.name AS team_name FROM projects p "
+            "JOIN teams t ON t.id = p.team_id "
+            "WHERE p.workspace_path = ? AND p.status != 'archived' "
+            "ORDER BY p.updated_at DESC LIMIT 1",
+            (folder,),
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
 
 
 def get_project(project_id: str) -> Optional[Dict[str, Any]]:

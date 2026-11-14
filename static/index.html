@@ -191,7 +191,35 @@
         
         <!-- 空状态：Codex 原生卡片布局 (我们该做什么？) -->
         <div id="empty-state" class="max-w-2xl mx-auto h-full flex flex-col justify-center items-center -mt-8">
-          <h1 class="text-2xl font-bold text-[#15201D] mb-8 tracking-tight">我们该做什么？</h1>
+          <h1 class="text-2xl font-bold text-[#15201D] mb-2 tracking-tight">我们该做什么？</h1>
+
+          <!-- 选择项目文件夹：对话、附件、代码和 Git 都落在这里 -->
+          <div class="w-full mb-4">
+            <div class="flex items-center justify-between px-1 mb-1.5">
+              <span class="text-[11px] font-medium text-[#7A8C87]">选择项目</span>
+              <span id="hero-project-path" class="text-[10px] text-[#9AA9A4] font-mono truncate max-w-[65%]"></span>
+            </div>
+            <div class="relative">
+              <button id="hero-project-btn" type="button" onclick="toggleHeroProjectMenu(event)" class="w-full flex items-center gap-2 px-3 py-2.5 bg-[#FFFFFF] border border-[#E3ECE9] rounded-xl text-left hover:border-[#B8CCC6] transition-all" aria-expanded="false">
+                <i data-lucide="folder" class="w-4 h-4 text-[#267F68] shrink-0"></i>
+                <span id="hero-project-label" class="flex-1 min-w-0 text-xs font-medium text-[#15201D] truncate">默认项目</span>
+                <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-[#7A8C87] shrink-0"></i>
+              </button>
+              <div id="hero-project-menu" class="hidden absolute left-0 right-0 top-full mt-1.5 bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl shadow-2xl z-50 overflow-hidden">
+                <div class="p-2 border-b border-[#F0F4F2]">
+                  <div class="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-[#F7FAF9]">
+                    <i data-lucide="search" class="w-3.5 h-3.5 text-[#9AA9A4]"></i>
+                    <input id="hero-project-search" oninput="renderHeroProjectList()" placeholder="搜索项目..." class="flex-1 bg-transparent border-0 outline-none text-[11px] text-[#15201D] placeholder-[#9CA3AF]">
+                  </div>
+                </div>
+                <button type="button" onclick="openProjectFolder()" class="w-full flex items-center gap-2 px-3 py-2.5 text-left text-[11px] font-semibold text-[#267F68] hover:bg-[#F3FBF8] border-b border-[#F0F4F2]">
+                  <i data-lucide="folder-plus" class="w-4 h-4"></i>
+                  打开本地文件夹…
+                </button>
+                <div id="hero-project-list" class="max-h-64 overflow-y-auto p-1"></div>
+              </div>
+            </div>
+          </div>
 
           <!-- Codex 风格输入主卡片 -->
           <div id="hero-card" class="w-full bg-[#FFFFFF] border border-[#E3ECE9] rounded-2xl p-4 shadow-sm hover:border-[#CDDED8] transition-all mb-4 relative">
@@ -1277,6 +1305,7 @@
           if (role) role.textContent = currentUser.role;
         }
         renderProjectSwitcher();
+        renderHeroProjectMenu();
       } catch (e) {
         // local single-user mode may not expose /api/auth/me details
       }
@@ -1306,6 +1335,94 @@
       currentProjectId = projectId;
       localStorage.setItem('omni_project_id', projectId);
       window.location.reload();
+    }
+
+    function currentProject() {
+      return projectsCache.find(item => item.id === currentProjectId) || null;
+    }
+
+    function renderHeroProjectMenu() {
+      const project = currentProject();
+      const label = document.getElementById('hero-project-label');
+      const path = document.getElementById('hero-project-path');
+      if (label) label.textContent = project?.name || '默认项目';
+      if (path) path.textContent = project?.workspace_path || '默认工作区';
+      renderHeroProjectList();
+    }
+
+    function renderHeroProjectList() {
+      const box = document.getElementById('hero-project-list');
+      if (!box) return;
+      const query = (document.getElementById('hero-project-search')?.value || '').trim().toLowerCase();
+      const projects = projectsCache.filter(project => {
+        if (project.status === 'archived') return false;
+        if (!query) return true;
+        return `${project.name || ''} ${project.workspace_path || ''}`.toLowerCase().includes(query);
+      });
+      if (!projects.length) {
+        box.innerHTML = '<div class="px-3 py-3 text-[10px] text-[#9AA9A4] text-center">没有匹配的项目</div>';
+        return;
+      }
+      box.innerHTML = projects.map(project => `
+        <button type="button" onclick="switchProject('${escapeHtml(project.id)}')" class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left hover:bg-[#F5F8F7] transition-colors">
+          <i data-lucide="folder" class="w-4 h-4 shrink-0 ${project.id === currentProjectId ? 'text-[#267F68]' : 'text-[#9AA9A4]'}"></i>
+          <span class="min-w-0 flex-1">
+            <span class="block text-[11px] font-medium text-[#15201D] truncate">${escapeHtml(project.name || '项目')}</span>
+            <span class="block text-[9px] text-[#9AA9A4] font-mono truncate">${escapeHtml(project.workspace_path || '默认工作区')}</span>
+          </span>
+          ${project.id === currentProjectId ? '<i data-lucide="check" class="w-3.5 h-3.5 text-[#267F68] shrink-0"></i>' : ''}
+        </button>`).join('');
+      lucide.createIcons();
+    }
+
+    function toggleHeroProjectMenu(event) {
+      if (event) event.stopPropagation();
+      const menu = document.getElementById('hero-project-menu');
+      const button = document.getElementById('hero-project-btn');
+      if (!menu) return;
+      const opening = menu.classList.contains('hidden');
+      menu.classList.toggle('hidden');
+      button?.setAttribute('aria-expanded', String(opening));
+      if (opening) {
+        renderHeroProjectMenu();
+        document.getElementById('hero-project-search')?.focus();
+      }
+    }
+
+    function closeHeroProjectMenu() {
+      const menu = document.getElementById('hero-project-menu');
+      if (!menu || menu.classList.contains('hidden')) return;
+      menu.classList.add('hidden');
+      document.getElementById('hero-project-btn')?.setAttribute('aria-expanded', 'false');
+    }
+
+    async function openProjectFolder() {
+      let path = '';
+      try {
+        if (window.omniDesktop?.pickFolder) {
+          path = await window.omniDesktop.pickFolder();
+        } else {
+          path = window.prompt('输入项目文件夹的绝对路径') || '';
+        }
+      } catch (err) {
+        toast(err.message || '无法打开文件夹选择器', 'error');
+        return;
+      }
+      if (!path) return;
+      try {
+        const res = await fetch('/api/projects/open-folder', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({path}),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || '打开文件夹失败');
+        currentProjectId = data.id;
+        localStorage.setItem('omni_project_id', data.id);
+        window.location.reload();
+      } catch (err) {
+        toast(err.message || '打开文件夹失败', 'error');
+      }
     }
 
     async function logout() {
@@ -1898,11 +2015,18 @@
       if (slash && !slash.classList.contains('hidden') && !slash.contains(e.target) && e.target !== chatInput) {
         closeSlashMenu();
       }
+      const heroMenu = document.getElementById('hero-project-menu');
+      const heroButton = document.getElementById('hero-project-btn');
+      if (heroMenu && !heroMenu.classList.contains('hidden')
+          && !heroMenu.contains(e.target) && !heroButton?.contains(e.target)) {
+        closeHeroProjectMenu();
+      }
     });
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeSlashMenu();
+        closeHeroProjectMenu();
         closeSessionModal();
         closeSettings();
       }
