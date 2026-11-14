@@ -1,0 +1,179 @@
+{
+  "active_model_id": "deepseek-v4-pro",
+  "providers": {
+    "deepseek": {
+      "name": "DeepSeek (深度求索官方)",
+      "base_url": "https://api.deepseek.com",
+      "models": [
+        {
+          "id": "deepseek-v4-pro",
+          "model_name": "deepseek-v4-pro",
+          "label": "DeepSeek-V4-Pro (DeepSeek-V4-Pro-0813 旗舰·1M上下文·默认思考)"
+        },
+        {
+          "id": "deepseek-flash",
+          "model_name": "deepseek-flash",
+          "label": "DeepSeek-Flash (DeepSeek-V4.1-Flash-1017 极速·1M上下文·视觉理解)"
+        }
+      ]
+    },
+    "anthropic": {
+      "name": "Anthropic (Claude 官方)",
+      "base_url": "https://api.anthropic.com/v1",
+      "models": [
+        {
+          "id": "claude-3-7-sonnet",
+          "model_name": "claude-3-7-sonnet-latest",
+          "label": "Claude 3.7 Sonnet (双核混合思考·全网Coding最高分)"
+        },
+        {
+          "id": "claude-3-5-sonnet",
+          "model_name": "claude-3-5-sonnet-latest",
+          "label": "Claude 3.5 Sonnet (经典生产力开发基石)"
+        }
+      ]
+    },
+    "openai": {
+      "name": "OpenAI 官方",
+      "base_url": "https://api.openai.com/v1",
+      "models": [
+        {
+          "id": "o3",
+          "model_name": "o3",
+          "label": "o3 (OpenAI 旗舰深度推理·全能自主Agent)"
+        },
+        {
+          "id": "o3-mini",
+          "model_name": "o3-mini",
+          "label": "o3-mini (超高性价比·编程与STEM深度推理)"
+        },
+        {
+          "id": "gpt-4-5",
+          "model_name": "gpt-4.5-preview",
+          "label": "GPT-4.5 (超大世界知识·极低幻觉旗舰)"
+        },
+        {
+          "id": "o1",
+          "model_name": "o1",
+          "label": "o1 (复杂科学与高维逻辑推演旗舰)"
+        },
+        {
+          "id": "gpt-4o",
+          "model_name": "gpt-4o",
+          "label": "GPT-4o (全模态交互主力)"
+        }
+      ]
+    },
+    "qwen": {
+      "name": "阿里通义千问 (DashScope)",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "models": [
+        {
+          "id": "qwq-32b",
+          "model_name": "qwq-32b-preview",
+          "label": "QwQ-32B (阿里最新开源思维链强推理)"
+        },
+        {
+          "id": "qwen-2-5-coder",
+          "model_name": "qwen2.5-coder-32b-instruct",
+          "label": "Qwen2.5-Coder-32B (全球开源代码屠榜标杆)"
+        },
+        {
+          "id": "qwen-max-latest",
+          "model_name": "qwen-max-latest",
+          "label": "Qwen-Max-Latest (最新商业版综合旗舰)"
+        }
+      ]
+    },
+    "kimi": {
+      "name": "月之暗面 (Moonshot Kimi)",
+      "base_url": "https://api.moonshot.ai/v1",
+      "models": [
+        {
+          "id": "kimi-k3-1-pro",
+          "model_name": "kimi-k3.1-pro",
+          "label": "Kimi-k3.1-Pro (3T参数MoE旗舰·1M上下文·视觉理解)"
+        },
+        {
+          "id": "kimi-k3-1-pro-highspeed",
+          "model_name": "kimi-k3.1-pro-highspeed",
+          "label": "Kimi-k3.1-Pro 高速版 (同等智能·2-3倍极速响应)"
+        }
+      ]
+    },
+    "zhipu": {
+      "name": "智谱 AI (GLM 开放平台)",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "models": [
+        {
+          "id": "glm-5-3",
+          "model_name": "glm-5.3",
+          "label": "GLM-5.3 (最新第五代重度推理旗舰·1M上下文)"
+        },
+        {
+          "id": "glm-5-3-flash",
+          "model_name": "glm-5.3-flash",
+          "label": "GLM-5.3-Flash (第五代极速端到端推理)"
+        },
+        {
+          "id": "glm-4-7",
+          "model_name": "glm-4.7",
+          "label": "GLM-4.7 (稳定版生产级强推理·200K上下文)"
+        }
+      ]
+    },
+    "google": {
+      "name": "Google Gemini",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+      "models": [
+        {
+          "id": "gemini-2-5-pro",
+          "model_name": "gemini-2.5-pro",
+          "label": "Gemini 2.5 Pro (超长上下文前沿旗舰)"
+        },
+        {
+          "id": "gemini-2-5-flash",
+          "model_name": "gemini-2.5-flash",
+          "label": "Gemini 2.5 Flash (极速实时推理)"
+        }
+      ]
+    },
+    "siliconflow": {
+      "name": "硅基流动 (国内免翻高并发)",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "models": [
+        {
+          "id": "sf-deepseek-v4-pro",
+          "model_name": "deepseek-ai/DeepSeek-V4-Pro",
+          "label": "DeepSeek-V4-Pro 满血版 (硅基托管)"
+        },
+        {
+          "id": "sf-deepseek-r1",
+          "model_name": "deepseek-ai/DeepSeek-R1",
+          "label": "DeepSeek-R1 满血版 (硅基托管)"
+        },
+        {
+          "id": "sf-qwq-32b",
+          "model_name": "Qwen/QwQ-32B-Preview",
+          "label": "QwQ-32B 推理模型 (硅基托管)"
+        }
+      ]
+    },
+    "ollama": {
+      "name": "本地离线私有化 (Ollama)",
+      "base_url": "http://localhost:11434/v1",
+      "models": [
+        {
+          "id": "ollama-qwen-coder",
+          "model_name": "qwen2.5-coder:32b",
+          "label": "Qwen2.5-Coder:32b (本地离线显卡运行)"
+        },
+        {
+          "id": "ollama-r1-distill",
+          "model_name": "deepseek-r1:14b",
+          "label": "DeepSeek-R1-Distill (本地蒸馏模型)"
+        }
+      ]
+    }
+  }
+}

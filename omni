@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "${REAL_SCRIPT}")" && pwd)"
+export PYTHONUNBUFFERED=1
+
+case "$1" in
+  --desktop|-d)
+    exec "${SCRIPT_DIR}/launch_desktop.sh"
+    ;;
+  web|--web|-w)
+    echo "Starting OmniAgent server on http://localhost:8001..."
+    exec "${SCRIPT_DIR}/.venv/bin/uvicorn" server:app --app-dir "${SCRIPT_DIR}" --host 0.0.0.0 --port 8001
+    ;;
+  --help|-h)
+    cat << 'EOF'
+OmniAgent Harness (dsh / pi / codex style)
+
+Usage:
+  omni                     Start interactive terminal agent (REPL)
+  omni "task..."           Run a one-shot autonomous task
+  omni --desktop, -d       Launch as standalone native desktop application
+  omni web, -w             Run the backend server on port 8001
+  omni --skills            List installed skills
+  omni --mcp               List registered MCP servers
+  omni --help, -h          Show this help message
+EOF
+    exit 0
+    ;;
+  *)
+    exec "${SCRIPT_DIR}/.venv/bin/python" "${SCRIPT_DIR}/cli.py" "$@"
+    ;;
+esac

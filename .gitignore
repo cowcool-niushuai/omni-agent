@@ -1,0 +1,29 @@
+# Secrets & runtime state
+.env
+.env.*
+!.env.example
+model_config.json
+omni_agent.db
+*.db
+*.db-wal
+*.db-shm
+data/
+workspace/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
