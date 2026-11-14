@@ -24,6 +24,7 @@ import skills_manager
 import usage
 from agent_core import agent_core
 from browser import browser_manager
+from git_api import router as git_router
 from mcp_api import router as mcp_admin_router
 from mcp_manager import mcp_manager
 from model_manager import model_manager
@@ -64,6 +65,7 @@ app = FastAPI(
 )
 
 app.include_router(mcp_admin_router)
+app.include_router(git_router)
 
 app.add_middleware(
     CORSMiddleware,

@@ -166,6 +166,56 @@ POST   /api/mcp/reload
 
 MCP 的 `command` 本质上会启动本地进程，因此管理接口仅限管理员，并把配置变更纳入审计和权限边界。
 
+### 11.2 Git 与 GitHub 管理
+
+设置 → Git 与 GitHub 提供当前工作区仓库和 GitHub 账户的统一管理：
+
+- **本地仓库**：自动扫描工作区内仓库；初始化、分支状态、未提交/已暂存文件、差异、日志、暂存/取消暂存、提交、切换/创建分支。
+- **远端操作**：设置 `origin`、push、pull（仅 fast-forward）、fetch、clone。
+- **GitHub**：连接 Personal Access Token、浏览/创建仓库、查看分支、管理 Pull Request 和 Issue。
+- **多仓库**：下拉切换工作区内不同仓库；GitHub 仓库可一键设为 `origin` 或克隆到工作区。
+
+API：
+
+```text
+GET    /api/git/repos
+GET    /api/git/status?repo=
+GET    /api/git/diff?repo=
+GET    /api/git/log?repo=
+GET    /api/git/branches?repo=
+POST   /api/git/init
+POST   /api/git/stage
+POST   /api/git/unstage
+POST   /api/git/commit
+POST   /api/git/checkout
+POST   /api/git/remote
+POST   /api/git/push
+POST   /api/git/pull
+POST   /api/git/fetch
+POST   /api/git/clone
+
+GET    /api/git/github/account
+POST   /api/git/github/connect
+POST   /api/git/github/disconnect
+GET    /api/git/github/repos
+POST   /api/git/github/repos
+GET    /api/git/github/branches?repo=
+GET    /api/git/github/pulls?repo=
+POST   /api/git/github/pulls
+GET    /api/git/github/issues?repo=
+POST   /api/git/github/issues
+```
+
+安全约束：
+
+- Git 仓库必须位于当前项目工作区内；检测到父级仓库在工作区外时按“非仓库”处理，不会访问项目外部仓库。
+- 远端 URL 仅允许 HTTPS/SSH，且主机必须在 `GIT_ALLOWED_HOSTS` 中；拒绝带用户名密码的 URL。
+- GitHub Token 只保存在本机 `data/credentials/github_<user>.json`，权限 `0600`，不会返回给前端、不会写入提示词或审计参数。
+- push/pull/fetch 使用临时 `GIT_ASKPASS` 脚本传递 Token，Token 不出现在命令行参数或日志中。
+- 用户在界面中主动发起的推送直接执行；Agent 发起的 push/pull/clone 仍经过命令策略审批和沙箱网络开关。
+
+限制：当前只支持 GitHub.com API，不包含 GitHub Enterprise、OAuth 登录、GitLab/Gitea 专用 API；GitLab/Bitbucket 可通过普通 Git remote 使用。
+
 ### 12. 无头浏览器自动化
 
 `browser.py` 基于 Playwright + Chromium 提供受控的网页交互能力：
@@ -611,6 +661,10 @@ make check      # 全部检查
 | `WEB_FETCH_ALLOWED_PORTS` | 允许访问的端口 | `80,443,8080,8443` |
 | `ALLOW_PRIVATE_NETWORK` | 是否允许抓取内网地址 | `false` |
 | `MCP_REQUEST_TIMEOUT_SECONDS` | MCP 请求超时 | `15` |
+| `GIT_ENABLED` | 启用 Git/GitHub 管理 | `true` |
+| `GIT_ALLOWED_HOSTS` | 允许的 Git 远程主机（逗号分隔） | `github.com,gitlab.com,bitbucket.org` |
+| `GIT_TIMEOUT_SECONDS` | Git 命令超时（秒） | `60` |
+| `GIT_MAX_DIFF_CHARS` | diff 输出最大字符数 | `200000` |
 | `AUDIT_ENABLED` | 是否写入工具审计 | `true` |
 | `TOOL_RETRY_ATTEMPTS` | 幂等只读工具最大尝试次数 | `2` |
 | `TOOL_RETRY_BACKOFF_SECONDS` | 工具重试退避基数 | `0.3` |
@@ -660,7 +714,7 @@ uv run mypy
 
 当前结果：
 
-- `pytest`：140 passed
+- `pytest`：152 passed
 - `ruff`：All checks passed
 - `mypy`：Success，15 source files
 

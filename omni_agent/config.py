@@ -115,6 +115,10 @@ class Settings(BaseSettings):
     search_timeout_seconds: float = 10.0
     search_language: str = "zh-CN"
     search_allow_private_network: bool = False
+    git_enabled: bool = True
+    git_allowed_hosts: str = "github.com,gitlab.com,bitbucket.org"
+    git_timeout_seconds: float = 60.0
+    git_max_diff_chars: int = 200000
 
     # Phase 3: headless browser automation.
     browser_enabled: bool = True

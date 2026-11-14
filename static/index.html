@@ -304,7 +304,136 @@
     </div>
 
     <!-- 2. STATS TAB -->
-    <div id="tab-stats" class="hidden flex-1 flex flex-col h-full p-6 overflow-y-auto">
+    <!-- GIT / GITHUB TAB -->
+<div id="tab-git" class="hidden flex-1 flex flex-col h-full p-6 overflow-y-auto">
+  <div class="max-w-5xl mx-auto w-full space-y-4">
+    <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-bold text-[#15201D]">Git 与 GitHub</h2>
+        <p class="text-xs text-[#7A8C87] mt-1">管理当前工作区仓库、提交、远程推送，以及 GitHub 账号与仓库。</p>
+      </div>
+      <button onclick="loadGitPanel()" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E3ECE9] bg-white text-xs font-semibold text-[#4A5568] hover:bg-[#F5F8F7]">
+        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>刷新
+      </button>
+    </div>
+
+    <section class="bg-white border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <div>
+          <div class="text-xs font-bold text-[#15201D]">本地仓库</div>
+          <div class="text-[10px] text-[#7A8C87] mt-0.5">工作区内可切换的 Git 仓库。</div>
+        </div>
+        <button onclick="gitInitRepo()" class="px-2.5 py-1.5 rounded-lg border border-[#E3ECE9] text-[10px] font-semibold text-[#4A5568] hover:bg-[#F5F8F7]">初始化仓库</button>
+      </div>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <select id="git-repo-select" onchange="loadGitStatus()" class="flex-1 px-3 py-2 rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] text-xs text-[#15201D] outline-none focus:border-[#3E8E7E]"></select>
+        <button onclick="loadGitStatus()" class="px-3 py-2 rounded-xl border border-[#E3ECE9] text-xs font-semibold text-[#4A5568] hover:bg-[#F5F8F7]">刷新状态</button>
+      </div>
+      <div id="git-repo-status" class="mt-3 text-xs text-[#7A8C87]">正在读取仓库状态…</div>
+    </section>
+
+    <section class="bg-white border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+      <div class="text-xs font-bold text-[#15201D] mb-2">提交与远程</div>
+      <textarea id="git-commit-message" rows="2" placeholder="提交说明，例如：feat: update git panel" class="w-full px-3 py-2 rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] text-xs outline-none focus:border-[#3E8E7E] resize-y"></textarea>
+      <div class="flex flex-wrap gap-2 mt-2">
+        <button onclick="gitStageAll()" class="px-2.5 py-1.5 rounded-lg border border-[#E3ECE9] text-[10px] font-semibold text-[#4A5568] hover:bg-[#F5F8F7]">全部暂存</button>
+        <button onclick="gitUnstageAll()" class="px-2.5 py-1.5 rounded-lg border border-[#E3ECE9] text-[10px] font-semibold text-[#4A5568] hover:bg-[#F5F8F7]">全部取消暂存</button>
+        <button onclick="gitCommit()" class="px-3 py-1.5 rounded-lg bg-[#15201D] text-white text-[10px] font-semibold hover:bg-[#24332E]">提交</button>
+      </div>
+      <div class="mt-3 flex flex-col sm:flex-row gap-2">
+        <input id="git-remote-url" placeholder="https://github.com/owner/repo.git" class="flex-1 px-3 py-2 rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] text-xs outline-none focus:border-[#3E8E7E]">
+        <button onclick="gitSaveRemote()" class="px-3 py-2 rounded-xl border border-[#E3ECE9] text-xs font-semibold text-[#4A5568] hover:bg-[#F5F8F7]">保存 Remote</button>
+      </div>
+      <div class="flex flex-wrap gap-2 mt-2">
+        <button onclick="gitPush()" class="px-2.5 py-1.5 rounded-lg border border-[#E3ECE9] text-[10px] font-semibold text-[#4A5568] hover:bg-[#F5F8F7]">Push</button>
+        <button onclick="gitPull()" class="px-2.5 py-1.5 rounded-lg border border-[#E3ECE9] text-[10px] font-semibold text-[#4A5568] hover:bg-[#F5F8F7]">Pull</button>
+        <button onclick="gitFetch()" class="px-2.5 py-1.5 rounded-lg border border-[#E3ECE9] text-[10px] font-semibold text-[#4A5568] hover:bg-[#F5F8F7]">Fetch</button>
+      </div>
+      <div class="mt-3 flex flex-col sm:flex-row gap-2">
+        <input id="git-clone-url" placeholder="克隆 URL" class="flex-1 px-3 py-2 rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] text-xs outline-none focus:border-[#3E8E7E]">
+        <input id="git-clone-target" placeholder="目标目录（可选）" class="w-full sm:w-44 px-3 py-2 rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] text-xs outline-none focus:border-[#3E8E7E]">
+        <button onclick="gitClone()" class="px-3 py-2 rounded-xl border border-[#E3ECE9] text-xs font-semibold text-[#4A5568] hover:bg-[#F5F8F7]">克隆</button>
+      </div>
+      <div id="git-action-result" class="hidden mt-3 text-[11px] rounded-xl px-3 py-2"></div>
+    </section>
+
+    <section class="bg-white border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+      <div class="text-xs font-bold text-[#15201D] mb-2">GitHub 账号</div>
+      <div id="github-account" class="text-xs text-[#7A8C87]">正在读取 GitHub 账号…</div>
+      <div id="github-connect-form" class="flex flex-col sm:flex-row gap-2 mt-3">
+        <input id="github-token" type="password" autocomplete="off" placeholder="GitHub Personal Access Token（仅保存在本机）" class="flex-1 px-3 py-2 rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] text-xs outline-none focus:border-[#3E8E7E]">
+        <button onclick="connectGitHub()" class="px-3 py-2 rounded-xl bg-[#15201D] text-white text-xs font-semibold hover:bg-[#24332E]">连接 GitHub</button>
+      </div>
+      <div id="github-account-actions" class="hidden mt-2">
+        <button onclick="disconnectGitHub()" class="px-2.5 py-1.5 rounded-lg border border-[#E3ECE9] text-[10px] font-semibold text-[#9B4444] hover:bg-[#FDF6F6]">断开连接</button>
+      </div>
+    </section>
+
+    <section class="bg-white border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <div class="text-xs font-bold text-[#15201D]">GitHub 仓库</div>
+        <button onclick="loadGitHubRepos()" class="text-[10px] font-semibold text-[#3E8E7E]">刷新列表</button>
+      </div>
+      <details class="mb-3">
+        <summary class="cursor-pointer text-[10px] font-semibold text-[#4A5568]">新建 GitHub 仓库</summary>
+        <div class="mt-2 space-y-2">
+          <input id="github-repo-name" placeholder="仓库名" class="w-full px-3 py-2 rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] text-xs outline-none focus:border-[#3E8E7E]">
+          <input id="github-repo-description" placeholder="描述（可选）" class="w-full px-3 py-2 rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] text-xs outline-none focus:border-[#3E8E7E]">
+          <label class="flex items-center gap-2 text-[10px] text-[#4A5568]"><input id="github-repo-private" type="checkbox" checked class="accent-[#3E8E7E]">私有仓库</label>
+          <button onclick="createGitHubRepo()" class="px-3 py-2 rounded-xl bg-[#15201D] text-white text-xs font-semibold hover:bg-[#24332E]">创建仓库</button>
+        </div>
+      </details>
+      <div id="github-repos" class="space-y-2 text-xs text-[#7A8C87]">连接 GitHub 后显示仓库列表。</div>
+    </section>
+
+    <section id="github-repo-detail" class="hidden bg-white border border-[#E3ECE9] rounded-2xl p-4 shadow-sm">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <div class="text-xs font-bold text-[#15201D]" id="github-detail-name">仓库</div>
+          <div class="text-[10px] text-[#7A8C87] mt-0.5" id="github-detail-meta"></div>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="setGitHubRepoAsRemote()" class="px-2.5 py-1.5 rounded-lg border border-[#E3ECE9] text-[10px] font-semibold text-[#4A5568] hover:bg-[#F5F8F7]">设为当前 Remote</button>
+          <button onclick="cloneGitHubRepo()" class="px-2.5 py-1.5 rounded-lg border border-[#E3ECE9] text-[10px] font-semibold text-[#4A5568] hover:bg-[#F5F8F7]">克隆到工作区</button>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
+        <div class="rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] p-3">
+          <div class="text-[10px] font-bold text-[#15201D] mb-2">分支</div>
+          <div id="github-branches" class="space-y-1 text-[10px] text-[#4A5568] max-h-48 overflow-y-auto"></div>
+        </div>
+        <div class="rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] p-3">
+          <div class="text-[10px] font-bold text-[#15201D] mb-2">Pull Requests</div>
+          <div id="github-pulls" class="space-y-1 text-[10px] text-[#4A5568] max-h-48 overflow-y-auto"></div>
+          <details class="mt-2">
+            <summary class="cursor-pointer text-[10px] font-semibold text-[#3E8E7E]">新建 PR</summary>
+            <div class="space-y-1 mt-1">
+              <input id="github-pr-title" placeholder="标题" class="w-full px-2 py-1.5 rounded-lg border border-[#E3ECE9] bg-white text-[10px]">
+              <input id="github-pr-head" placeholder="head 分支" class="w-full px-2 py-1.5 rounded-lg border border-[#E3ECE9] bg-white text-[10px]">
+              <input id="github-pr-base" placeholder="base 分支，默认 main" class="w-full px-2 py-1.5 rounded-lg border border-[#E3ECE9] bg-white text-[10px]">
+              <textarea id="github-pr-body" rows="2" placeholder="描述（可选）" class="w-full px-2 py-1.5 rounded-lg border border-[#E3ECE9] bg-white text-[10px]"></textarea>
+              <button onclick="createGitHubPull()" class="px-2 py-1 rounded-lg bg-[#15201D] text-white text-[10px]">创建 PR</button>
+            </div>
+          </details>
+        </div>
+        <div class="rounded-xl border border-[#E3ECE9] bg-[#FBFDFC] p-3">
+          <div class="text-[10px] font-bold text-[#15201D] mb-2">Issues</div>
+          <div id="github-issues" class="space-y-1 text-[10px] text-[#4A5568] max-h-48 overflow-y-auto"></div>
+          <details class="mt-2">
+            <summary class="cursor-pointer text-[10px] font-semibold text-[#3E8E7E]">新建 Issue</summary>
+            <div class="space-y-1 mt-1">
+              <input id="github-issue-title" placeholder="标题" class="w-full px-2 py-1.5 rounded-lg border border-[#E3ECE9] bg-white text-[10px]">
+              <textarea id="github-issue-body" rows="2" placeholder="内容（可选）" class="w-full px-2 py-1.5 rounded-lg border border-[#E3ECE9] bg-white text-[10px]"></textarea>
+              <button onclick="createGitHubIssue()" class="px-2 py-1 rounded-lg bg-[#15201D] text-white text-[10px]">创建 Issue</button>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="tab-stats" class="hidden flex-1 flex flex-col h-full p-6 overflow-y-auto">
       <div class="max-w-3xl mx-auto w-full">
         <div class="flex justify-end mb-3">
           <button onclick="loadGlobalStats()" class="text-xs text-[#7A8C87] hover:text-[#15201D] flex items-center gap-1">
@@ -1866,6 +1995,464 @@
     }
 
 
+    // ============================================================================
+    // Git & GitHub
+    // ============================================================================
+    let gitRepoCache = [];
+    let gitStatusCache = null;
+    let githubAccount = null;
+    let githubRepoCache = [];
+    let activeGitHubRepo = null;
+    let selectedGitRepo = '';
+
+    async function gitJson(url, options = {}) {
+      const opts = { credentials: 'same-origin', ...options };
+      if (opts.body && typeof opts.body !== 'string') {
+        opts.headers = { ...(opts.headers || {}), 'Content-Type': 'application/json' };
+        opts.body = JSON.stringify(opts.body);
+      }
+      const res = await fetch(url, opts);
+      const text = await res.text();
+      let data = null;
+      if (text) {
+        try { data = JSON.parse(text); } catch (e) { data = text; }
+      }
+      if (!res.ok) {
+        const message = data && data.detail ? data.detail : (data || `HTTP ${res.status}`);
+        throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
+      }
+      return data;
+    }
+
+    function showGitResult(message, ok = true) {
+      const box = document.getElementById('git-action-result');
+      if (!box) return;
+      box.classList.remove('hidden');
+      box.className = ok
+        ? 'mt-3 rounded-xl border border-[#CFE7DB] bg-[#F0F9F4] px-3 py-2 text-[11px] text-[#276749] break-all'
+        : 'mt-3 rounded-xl border border-[#F0D3D3] bg-[#FFF6F6] px-3 py-2 text-[11px] text-[#A33A3A] break-all';
+      box.textContent = message;
+    }
+
+    function gitRepoPayload(extra = {}) {
+      return { repo: selectedGitRepo, ...extra };
+    }
+
+    async function loadGitPanel() {
+      const statusBox = document.getElementById('git-repo-status');
+      if (statusBox) statusBox.innerHTML = '<div class="text-[11px] text-[#7A8C87] py-4 text-center">正在读取仓库…</div>';
+      try {
+        await loadGitRepos();
+      } catch (err) {
+        if (statusBox) statusBox.innerHTML = `<div class="text-[11px] text-[#A33A3A]">${escapeHtml(err.message)}</div>`;
+      }
+      try {
+        await loadGitHubAccount();
+      } catch (err) {
+        const box = document.getElementById('github-account');
+        if (box) box.innerHTML = `<div class="text-[11px] text-[#A33A3A]">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    async function loadGitRepos() {
+      const repos = await gitJson('/api/git/repos');
+      gitRepoCache = Array.isArray(repos) ? repos : [];
+      const select = document.getElementById('git-repo-select');
+      if (!select) return;
+      const current = select.value || selectedGitRepo || '';
+      const options = ['<option value="">工作区根目录</option>'];
+      gitRepoCache.filter(item => item.path).forEach(item => {
+        options.push(`<option value="${escapeHtml(item.path)}">${escapeHtml(item.name || item.path)}${item.branch ? ` · ${escapeHtml(item.branch)}` : ''}</option>`);
+      });
+      select.innerHTML = options.join('');
+      const fallback = gitRepoCache.find(item => item.path)?.path || '';
+      const desired = current || fallback;
+      select.value = desired && Array.from(select.options).some(option => option.value === desired) ? desired : '';
+      selectedGitRepo = select.value;
+      await loadGitStatus();
+    }
+
+    async function loadGitStatus() {
+      const select = document.getElementById('git-repo-select');
+      selectedGitRepo = select ? select.value : '';
+      const box = document.getElementById('git-repo-status');
+      if (!box) return;
+      const status = await gitJson(`/api/git/status?repo=${encodeURIComponent(selectedGitRepo)}`);
+      gitStatusCache = status;
+      if (!status.is_repo) {
+        box.innerHTML = `
+          <div class="rounded-xl border border-dashed border-[#D8E5E1] bg-[#F7FAF9] px-4 py-6 text-center">
+            <i data-lucide="folder-git-2" class="w-7 h-7 mx-auto mb-2 text-[#9AA9A4]"></i>
+            <div class="text-xs font-semibold text-[#15201D] mb-1">当前目录还不是 Git 仓库</div>
+            <div class="text-[11px] text-[#7A8C87] mb-3">${escapeHtml(status.path || '工作区根目录')}</div>
+            <button onclick="gitInitRepo()" class="h-8 px-3 rounded-lg bg-[#15201D] text-white text-[11px] font-semibold">初始化仓库</button>
+          </div>`;
+        lucide.createIcons();
+        return;
+      }
+      const files = status.files || [];
+      const dirty = files.length > 0;
+      const badge = dirty
+        ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-[#FFF6E8] text-[#9A6A21]">有改动</span>'
+        : '<span class="text-[10px] px-2 py-0.5 rounded-full bg-[#EDF7F1] text-[#2F7A55]">工作区干净</span>';
+      const ahead = Number(status.ahead || 0);
+      const behind = Number(status.behind || 0);
+      const remoteValue = status.origin || '';
+      const remoteInput = document.getElementById('git-remote-url');
+      if (remoteInput && !remoteInput.value) remoteInput.value = remoteValue;
+      box.innerHTML = `
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <span class="text-xs font-bold text-[#15201D] flex items-center gap-1.5"><i data-lucide="git-branch" class="w-3.5 h-3.5"></i>${escapeHtml(status.branch || '未命名分支')}</span>
+          ${badge}
+          ${status.upstream ? `<span class="text-[10px] text-[#7A8C87] font-mono">${escapeHtml(status.upstream)}</span>` : ''}
+          ${ahead ? `<span class="text-[10px] text-[#2F7A55]">↑${ahead}</span>` : ''}
+          ${behind ? `<span class="text-[10px] text-[#9A6A21]">↓${behind}</span>` : ''}
+          <span class="ml-auto text-[10px] text-[#9AA9A4] font-mono">${escapeHtml(status.relative_path || 'workspace')}</span>
+        </div>
+        ${files.length ? `<div class="space-y-1 max-h-72 overflow-y-auto rounded-xl border border-[#E3ECE9] p-2">${files.map(file => `
+          <label class="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[#F7FAF9] cursor-pointer">
+            <input type="checkbox" class="git-file-check accent-[#15201D]" value="${escapeHtml(file.path)}">
+            <span class="w-5 text-center text-[10px] font-mono ${file.untracked ? 'text-[#9A6A21]' : 'text-[#7A8C87]'}">${escapeHtml(file.untracked ? 'U' : (file.index + file.worktree))}</span>
+            <span class="text-[11px] text-[#4A5568] font-mono truncate">${escapeHtml(file.path)}</span>
+            ${file.staged ? '<span class="ml-auto text-[9px] text-[#2F7A55]">已暂存</span>' : ''}
+          </label>`).join('')}</div>` : '<div class="text-[11px] text-[#7A8C87] py-2">没有未提交的改动。</div>'}
+        <div class="mt-3 flex items-center justify-between gap-2">
+          <span class="text-[10px] text-[#9AA9A4]">勾选要提交的文件，不选则提交全部改动。</span>
+          <button onclick="loadGitStatus()" class="h-7 px-2.5 rounded-lg border border-[#D8E5E1] bg-white text-[10px] font-semibold text-[#4A5568]">刷新状态</button>
+        </div>`;
+      lucide.createIcons();
+    }
+
+    async function gitInitRepo() {
+      try {
+        await gitJson('/api/git/init', { method: 'POST', body: gitRepoPayload() });
+        showGitResult('Git 仓库已初始化');
+        await loadGitRepos();
+      } catch (err) { showGitResult(err.message, false); }
+    }
+
+    function gitCheckedFiles() {
+      return Array.from(document.querySelectorAll('.git-file-check:checked')).map(item => item.value);
+    }
+
+    async function gitStageAll() {
+      const files = (gitStatusCache?.files || []).map(file => file.path);
+      if (!files.length) return showGitResult('没有可暂存的改动', false);
+      try {
+        await gitJson('/api/git/stage', { method: 'POST', body: gitRepoPayload({ files }) });
+        showGitResult(`已暂存 ${files.length} 个文件`);
+        await loadGitStatus();
+      } catch (err) { showGitResult(err.message, false); }
+    }
+
+    async function gitUnstageAll() {
+      const files = (gitStatusCache?.files || []).filter(file => file.staged).map(file => file.path);
+      if (!files.length) return showGitResult('没有已暂存的文件', false);
+      try {
+        await gitJson('/api/git/unstage', { method: 'POST', body: gitRepoPayload({ files }) });
+        showGitResult(`已取消暂存 ${files.length} 个文件`);
+        await loadGitStatus();
+      } catch (err) { showGitResult(err.message, false); }
+    }
+
+    async function gitCommit() {
+      const message = document.getElementById('git-commit-message').value.trim();
+      if (!message) return showGitResult('请填写提交信息', false);
+      try {
+        const files = gitCheckedFiles();
+        const result = await gitJson('/api/git/commit', { method: 'POST', body: gitRepoPayload({ message, files }) });
+        showGitResult(result.message || result.output || '提交完成');
+        document.getElementById('git-commit-message').value = '';
+        await loadGitStatus();
+      } catch (err) { showGitResult(err.message, false); }
+    }
+
+    async function gitSaveRemote() {
+      const url = document.getElementById('git-remote-url').value.trim();
+      if (!url) return showGitResult('请填写远程仓库地址', false);
+      try {
+        const result = await gitJson('/api/git/remote', { method: 'POST', body: gitRepoPayload({ url, name: 'origin' }) });
+        showGitResult(result.message || '远程地址已保存');
+        await loadGitStatus();
+      } catch (err) { showGitResult(err.message, false); }
+    }
+
+    async function gitPush() {
+      const branch = gitStatusCache?.branch || '';
+      try {
+        const result = await gitJson('/api/git/push', { method: 'POST', body: gitRepoPayload({ branch }) });
+        showGitResult(result.message || result.output || '推送完成');
+        await loadGitStatus();
+      } catch (err) { showGitResult(err.message, false); }
+    }
+
+    async function gitPull() {
+      const branch = gitStatusCache?.branch || '';
+      try {
+        const result = await gitJson('/api/git/pull', { method: 'POST', body: gitRepoPayload({ branch }) });
+        showGitResult(result.message || result.output || '拉取完成');
+        await loadGitStatus();
+      } catch (err) { showGitResult(err.message, false); }
+    }
+
+    async function gitFetch() {
+      try {
+        const result = await gitJson('/api/git/fetch', { method: 'POST', body: gitRepoPayload() });
+        showGitResult(result.message || result.output || 'Fetch 完成');
+        await loadGitStatus();
+      } catch (err) { showGitResult(err.message, false); }
+    }
+
+    async function gitClone() {
+      const url = document.getElementById('git-clone-url').value.trim();
+      const target = document.getElementById('git-clone-target').value.trim();
+      if (!url || !target) return showGitResult('请填写仓库地址和目标目录', false);
+      try {
+        const result = await gitJson('/api/git/clone', { method: 'POST', body: { url, target, token: true } });
+        showGitResult(result.message || '克隆完成');
+        await loadGitRepos();
+      } catch (err) { showGitResult(err.message, false); }
+    }
+
+    function renderGitHubAccount(account) {
+      const box = document.getElementById('github-account');
+      const form = document.getElementById('github-connect-form');
+      const actions = document.getElementById('github-account-actions');
+      if (!box) return;
+      if (account && account.connected) {
+        if (form) form.classList.add('hidden');
+        if (actions) actions.classList.remove('hidden');
+        box.innerHTML = `
+          <div class="flex items-center gap-3">
+            ${account.avatar_url ? `<img src="${escapeHtml(account.avatar_url)}" class="w-9 h-9 rounded-full border border-[#E3ECE9]" alt="">` : '<div class="w-9 h-9 rounded-full bg-[#15201D] text-white flex items-center justify-center text-xs font-bold">GH</div>'}
+            <div class="min-w-0">
+              <div class="text-xs font-bold text-[#15201D]">${escapeHtml(account.name || account.login || 'GitHub')}</div>
+              <div class="text-[10px] text-[#7A8C87] font-mono">@${escapeHtml(account.login || '')}</div>
+            </div>
+            <span class="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-[#EDF7F1] text-[#2F7A55]">已连接</span>
+          </div>`;
+      } else {
+        if (form) form.classList.remove('hidden');
+        if (actions) actions.classList.add('hidden');
+        box.innerHTML = '<div class="text-[11px] text-[#7A8C87]">连接 GitHub Personal Access Token 后可以浏览仓库、创建仓库、管理 PR 和 Issue。Token 只保存在本机。</div>';
+      }
+    }
+
+    async function loadGitHubAccount() {
+      const account = await gitJson('/api/git/github/account');
+      githubAccount = account;
+      renderGitHubAccount(account);
+      if (account && account.connected) await loadGitHubRepos();
+      else {
+        githubRepoCache = [];
+        const list = document.getElementById('github-repos');
+        if (list) list.innerHTML = '<div class="text-[11px] text-[#9AA9A4] py-3">连接 GitHub 后显示仓库。</div>';
+        document.getElementById('github-repo-detail')?.classList.add('hidden');
+      }
+    }
+
+    async function connectGitHub() {
+      const input = document.getElementById('github-token');
+      const token = input ? input.value.trim() : '';
+      if (!token) return toast('请填写 GitHub Token', 'error');
+      try {
+        const account = await gitJson('/api/git/github/connect', { method: 'POST', body: { token } });
+        input.value = '';
+        githubAccount = account;
+        renderGitHubAccount(account);
+        toast('GitHub 已连接', 'success');
+        await loadGitHubRepos();
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    async function disconnectGitHub() {
+      if (!confirm('断开 GitHub 连接？本机保存的 Token 会被删除。')) return;
+      try {
+        await gitJson('/api/git/github/disconnect', { method: 'POST', body: {} });
+        githubAccount = null;
+        renderGitHubAccount(null);
+        toast('GitHub 已断开', 'success');
+        await loadGitHubAccount();
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    async function loadGitHubRepos() {
+      const list = document.getElementById('github-repos');
+      if (!list) return;
+      list.innerHTML = '<div class="text-[11px] text-[#9AA9A4] py-3">正在读取仓库…</div>';
+      const repos = await gitJson('/api/git/github/repos');
+      githubRepoCache = Array.isArray(repos) ? repos : [];
+      if (!githubRepoCache.length) {
+        list.innerHTML = '<div class="text-[11px] text-[#9AA9A4] py-3">没有找到仓库。</div>';
+        return;
+      }
+      list.innerHTML = githubRepoCache.map(repo => `
+        <button onclick='selectGitHubRepo(${JSON.stringify(repo.full_name)})' class="w-full text-left rounded-xl border border-[#E3ECE9] bg-white px-3 py-2.5 hover:border-[#15201D] transition-colors">
+          <div class="flex items-center gap-2">
+            <i data-lucide="book-marked" class="w-3.5 h-3.5 text-[#7A8C87]"></i>
+            <span class="text-[11px] font-bold text-[#15201D] truncate">${escapeHtml(repo.full_name)}</span>
+            ${repo.private ? '<span class="text-[9px] px-1.5 py-0.5 rounded bg-[#F5F8F7] text-[#7A8C87]">Private</span>' : ''}
+          </div>
+          ${repo.description ? `<div class="text-[10px] text-[#7A8C87] mt-1 line-clamp-2">${escapeHtml(repo.description)}</div>` : ''}
+        </button>`).join('');
+      lucide.createIcons();
+      if (activeGitHubRepo) {
+        const current = githubRepoCache.find(repo => repo.full_name === activeGitHubRepo.full_name);
+        if (current) await selectGitHubRepo(current.full_name);
+      }
+    }
+
+    async function createGitHubRepo() {
+      const name = document.getElementById('github-repo-name').value.trim();
+      if (!name) return toast('请填写仓库名称', 'error');
+      try {
+        const repo = await gitJson('/api/git/github/repos', {
+          method: 'POST',
+          body: {
+            name,
+            description: document.getElementById('github-repo-description').value.trim(),
+            private: document.getElementById('github-repo-private').checked,
+            auto_init: true,
+          },
+        });
+        document.getElementById('github-repo-name').value = '';
+        document.getElementById('github-repo-description').value = '';
+        toast('GitHub 仓库已创建', 'success');
+        await loadGitHubRepos();
+        if (repo && repo.full_name) await selectGitHubRepo(repo.full_name);
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    async function selectGitHubRepo(fullName) {
+      const repo = githubRepoCache.find(item => item.full_name === fullName);
+      if (!repo) return;
+      activeGitHubRepo = repo;
+      const detail = document.getElementById('github-repo-detail');
+      if (!detail) return;
+      detail.classList.remove('hidden');
+      document.getElementById('github-detail-name').textContent = repo.full_name;
+      document.getElementById('github-detail-meta').textContent = `${repo.private ? 'Private' : 'Public'} · 默认分支 ${repo.default_branch || 'main'}${repo.language ? ` · ${repo.language}` : ''}`;
+      await Promise.all([loadGitHubBranches(), loadGitHubPulls(), loadGitHubIssues()]);
+    }
+
+    async function loadGitHubBranches() {
+      if (!activeGitHubRepo) return;
+      const box = document.getElementById('github-branches');
+      if (!box) return;
+      const branches = await gitJson(`/api/git/github/branches?repo=${encodeURIComponent(activeGitHubRepo.full_name)}`);
+      const names = (Array.isArray(branches) ? branches : []).map(item => typeof item === 'string' ? item : item.name).filter(Boolean);
+      box.innerHTML = names.length ? names.map(name => `<span class="text-[10px] font-mono px-2 py-1 rounded-lg bg-[#F5F8F7] border border-[#E3ECE9] text-[#4A5568]">${escapeHtml(name)}</span>`).join('') : '<span class="text-[11px] text-[#9AA9A4]">没有分支。</span>';
+      const headInput = document.getElementById('github-pr-head');
+      if (headInput && !headInput.value && names.length) headInput.value = names.includes(gitStatusCache?.branch) ? gitStatusCache.branch : names[0];
+      const baseInput = document.getElementById('github-pr-base');
+      if (baseInput && !baseInput.value) baseInput.value = activeGitHubRepo.default_branch || names[0] || 'main';
+    }
+
+    async function loadGitHubPulls() {
+      if (!activeGitHubRepo) return;
+      const box = document.getElementById('github-pulls');
+      if (!box) return;
+      const pulls = await gitJson(`/api/git/github/pulls?repo=${encodeURIComponent(activeGitHubRepo.full_name)}`);
+      const items = Array.isArray(pulls) ? pulls : [];
+      box.innerHTML = items.length ? items.map(item => `
+        <a href="${escapeHtml(item.html_url || '#')}" target="_blank" class="block rounded-xl border border-[#E3ECE9] bg-white px-3 py-2 hover:border-[#15201D]">
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] font-mono text-[#7A8C87]">#${item.number}</span>
+            <span class="text-[11px] font-semibold text-[#15201D] truncate">${escapeHtml(item.title || '')}</span>
+            <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-[#F5F8F7] text-[#7A8C87]">${escapeHtml(item.state || 'open')}</span>
+          </div>
+          <div class="text-[10px] text-[#7A8C87] mt-1 font-mono">${escapeHtml(item.user?.login || '')} · ${escapeHtml(item.head?.ref || '')} → ${escapeHtml(item.base?.ref || '')}</div>
+        </a>`).join('') : '<div class="text-[11px] text-[#9AA9A4] py-2">没有 Pull Request。</div>';
+    }
+
+    async function loadGitHubIssues() {
+      if (!activeGitHubRepo) return;
+      const box = document.getElementById('github-issues');
+      if (!box) return;
+      const issues = await gitJson(`/api/git/github/issues?repo=${encodeURIComponent(activeGitHubRepo.full_name)}`);
+      const items = Array.isArray(issues) ? issues : [];
+      box.innerHTML = items.length ? items.map(item => `
+        <a href="${escapeHtml(item.html_url || '#')}" target="_blank" class="block rounded-xl border border-[#E3ECE9] bg-white px-3 py-2 hover:border-[#15201D]">
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] font-mono text-[#7A8C87]">#${item.number}</span>
+            <span class="text-[11px] font-semibold text-[#15201D] truncate">${escapeHtml(item.title || '')}</span>
+            <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-[#F5F8F7] text-[#7A8C87]">${escapeHtml(item.state || 'open')}</span>
+          </div>
+          <div class="text-[10px] text-[#7A8C87] mt-1">${escapeHtml(item.user?.login || '')}</div>
+        </a>`).join('') : '<div class="text-[11px] text-[#9AA9A4] py-2">没有 Issue。</div>';
+    }
+
+    async function createGitHubPull() {
+      if (!activeGitHubRepo) return toast('先选择一个 GitHub 仓库', 'error');
+      const title = document.getElementById('github-pr-title').value.trim();
+      const head = document.getElementById('github-pr-head').value.trim();
+      const base = document.getElementById('github-pr-base').value.trim();
+      if (!title || !head || !base) return toast('请填写标题、源分支和目标分支', 'error');
+      try {
+        await gitJson('/api/git/github/pulls', {
+          method: 'POST',
+          body: {
+            repo: activeGitHubRepo.full_name,
+            title,
+            head,
+            base,
+            body: document.getElementById('github-pr-body').value.trim(),
+          },
+        });
+        document.getElementById('github-pr-title').value = '';
+        document.getElementById('github-pr-body').value = '';
+        toast('Pull Request 已创建', 'success');
+        await loadGitHubPulls();
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    async function createGitHubIssue() {
+      if (!activeGitHubRepo) return toast('先选择一个 GitHub 仓库', 'error');
+      const title = document.getElementById('github-issue-title').value.trim();
+      if (!title) return toast('请填写 Issue 标题', 'error');
+      try {
+        await gitJson('/api/git/github/issues', {
+          method: 'POST',
+          body: {
+            repo: activeGitHubRepo.full_name,
+            title,
+            body: document.getElementById('github-issue-body').value.trim(),
+          },
+        });
+        document.getElementById('github-issue-title').value = '';
+        document.getElementById('github-issue-body').value = '';
+        toast('Issue 已创建', 'success');
+        await loadGitHubIssues();
+      } catch (err) { toast(err.message, 'error'); }
+    }
+
+    async function setGitHubRepoAsRemote() {
+      if (!activeGitHubRepo) return toast('先选择一个 GitHub 仓库', 'error');
+      if (!gitStatusCache || !gitStatusCache.is_repo) return toast('当前目录还不是 Git 仓库，请先初始化', 'error');
+      try {
+        await gitJson('/api/git/remote', {
+          method: 'POST',
+          body: gitRepoPayload({ url: activeGitHubRepo.clone_url, name: 'origin' }),
+        });
+        showGitResult(`已设置 origin: ${activeGitHubRepo.clone_url}`);
+        await loadGitStatus();
+      } catch (err) { showGitResult(err.message, false); }
+    }
+
+    async function cloneGitHubRepo() {
+      if (!activeGitHubRepo) return;
+      const target = document.getElementById('git-clone-target');
+      if (target) target.value = activeGitHubRepo.name;
+      try {
+        await gitJson('/api/git/clone', {
+          method: 'POST',
+          body: { url: activeGitHubRepo.clone_url, target: activeGitHubRepo.name, token: true },
+        });
+        toast('仓库已克隆到工作区', 'success');
+        await loadGitRepos();
+      } catch (err) { showGitResult(err.message, false); }
+    }
+
     function switchTab(tab) {
       const primaryTabs = ['chat', 'workspace'];
       ['chat', 'skills', 'mcp', 'audit', 'schedules', 'workspace', 'memory', 'team'].forEach(t => {
@@ -1905,6 +2492,7 @@
       { id: 'memory', label: '记忆中枢', icon: 'database', desc: '长期记忆、用户偏好与项目知识库。' },
       { id: 'skills', label: '技能库', icon: 'sparkles', desc: '管理与激活 SKILL.md 能力包。' },
       { id: 'mcp', label: 'MCP 服务', icon: 'layers', desc: '连接外部 MCP Server 与工具数据源。' },
+  { id: 'git', label: 'Git 与 GitHub', icon: 'git-branch', desc: '本地仓库、提交、推送和 GitHub 管理。' },
       { id: 'schedules', label: '定时任务', icon: 'calendar-clock', desc: '无人值守的周期任务与运行记录。' },
       { id: 'audit', label: '审计记录', icon: 'shield-check', desc: '工具调用、审批与安全审计账本。' },
       { id: 'team', label: '团队管理', icon: 'users', desc: '成员、团队、项目与 API Token。' },
@@ -1999,6 +2587,7 @@
       if (sectionId === 'team') loadTeamData();
       if (sectionId === 'skills' && typeof loadSkills === 'function') loadSkills();
       if (sectionId === 'mcp' && typeof loadMCPStatus === 'function') loadMCPStatus();
+      if (sectionId === 'git' && typeof loadGitPanel === 'function') loadGitPanel();
       if (sectionId === 'stats') loadGlobalStats();
       document.getElementById('settings-content').scrollTop = 0;
       lucide.createIcons();
