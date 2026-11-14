@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OmniAgent - Codex Minimalist Edition</title>
+  <title>OmniAgent · 智能体工作台</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2315201D'/%3E%3Cpath d='M9 10h6a7 7 0 0 1 0 14H9z' fill='%2359D6B3'/%3E%3C/svg%3E">
   <!-- Local assets: the console works without public CDNs / Internet access. -->
   <link rel="stylesheet" href="/static/app.css">
@@ -12,12 +12,9 @@
   <script src="/static/vendor/marked.min.js"></script>
   <script src="/static/vendor/purify.min.js"></script>
   <script src="/static/vendor/highlight.min.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Manrope', system-ui, -apple-system, sans-serif; background-color: #F5F8F7; color: #15201D; }
-    code, pre, .font-mono { font-family: 'IBM Plex Mono', monospace; }
+    body { font-family: 'Manrope', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif; background-color: #F5F8F7; color: #15201D; }
+    code, pre, .font-mono { font-family: 'IBM Plex Mono', 'Cascadia Code', 'SFMono-Regular', Consolas, monospace; }
     ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #D5E2DE; border-radius: 9999px; }
@@ -42,6 +39,7 @@
             Ω
           </div>
           <span class="font-bold text-sm tracking-tight text-[#15201D]">OmniAgent</span>
+          <span id="desktop-badge" class="hidden text-[9px] font-semibold tracking-wide uppercase text-[#267F68] bg-[#E4F4EE] border border-[#CDE8DE] rounded px-1.5 py-0.5">桌面版</span>
         </div>
         <div id="service-status-dot" class="w-2 h-2 rounded-full bg-[#59D6B3]" title="服务在线"></div>
       </div>
@@ -101,7 +99,13 @@
       <div class="flex-1 overflow-y-auto pr-1">
         <div class="flex items-center justify-between px-3 py-1.5">
           <span class="text-[11px] font-medium text-[#7A8C87]">对话记录</span>
-          <span id="session-count" class="text-[10px] font-mono text-[#9AA9A4]">0</span>
+          <div class="flex items-center gap-1.5">
+            <button id="cleanup-empty-btn" onclick="cleanupEmptySessions()" class="hidden items-center gap-1 text-[10px] text-[#7A8C87] hover:text-[#C0392B] px-1.5 py-0.5 rounded-md hover:bg-[#FFF1F0] transition-all" title="清理没有消息的空会话" aria-label="清理空会话">
+              <i data-lucide="eraser" class="w-3 h-3"></i>
+              <span>清理</span>
+            </button>
+            <span id="session-count" class="text-[10px] font-mono text-[#9AA9A4]">0</span>
+          </div>
         </div>
         <div class="px-2 pb-2">
           <div class="relative">
@@ -138,14 +142,18 @@
           <span class="text-[11px] text-[#7A8C87] font-mono truncate hidden sm:inline" id="current-session-id"></span>
         </div>
         <div class="flex items-center gap-1">
-          <button onclick="exportCurrentSession()" class="p-1.5 rounded-lg text-[#7A8C87] hover:text-[#15201D] hover:bg-[#E3ECE9]/60 transition-all" title="导出当前对话">
+          <button onclick="exportCurrentSession()" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[#7A8C87] hover:text-[#15201D] hover:bg-[#E3ECE9]/60 transition-all" title="导出当前对话" aria-label="导出当前对话">
             <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span class="hidden xl:inline text-[11px] font-medium">导出</span>
           </button>
-          <button onclick="clearCurrentChat()" class="p-1.5 rounded-lg text-[#7A8C87] hover:text-[#15201D] hover:bg-[#E3ECE9]/60 transition-all" title="清空消息（保留会话）">
+          <button onclick="clearCurrentChat()" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[#7A8C87] hover:text-[#15201D] hover:bg-[#E3ECE9]/60 transition-all" title="清空消息（保留会话）" aria-label="清空消息">
             <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+            <span class="hidden xl:inline text-[11px] font-medium">清空</span>
           </button>
-          <button onclick="deleteCurrentSession()" class="p-1.5 rounded-lg text-[#7A8C87] hover:text-[#C0392B] hover:bg-[#FFF1F0] transition-all" title="删除当前对话">
+          <span class="w-px h-4 bg-[#E3ECE9] mx-0.5"></span>
+          <button onclick="deleteCurrentSession()" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[#7A8C87] hover:text-[#C0392B] hover:bg-[#FFF1F0] transition-all" title="删除当前对话" aria-label="删除当前对话">
             <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            <span class="hidden xl:inline text-[11px] font-medium">删除</span>
           </button>
         </div>
       </header>
@@ -199,27 +207,55 @@
             </div>
           </div>
 
-          <!-- 快捷操作清单 (Codex 纯净排版，不堆叠任何说明废话) -->
-          <div class="w-full space-y-1 text-xs">
-            <div onclick="sendQuickPrompt('写一个快速排序算法并保存为 quick_sort.py，运行测试并输出结果')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl hover:bg-[#EBF2EF] cursor-pointer text-[#15201D] transition-all">
-              <i data-lucide="code-2" class="w-4 h-4 text-[#267F68]"></i>
-              <span class="font-medium">编写并执行 Python 算法脚本</span>
+          <!-- 快捷操作卡片 -->
+          <div class="w-full grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <div onclick="sendQuickPrompt('写一个快速排序算法并保存为 quick_sort.py，运行测试并输出结果')" class="group flex items-start gap-3 p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E3ECE9] hover:border-[#B8CCC6] hover:shadow-sm cursor-pointer text-[#15201D] transition-all">
+              <div class="w-8 h-8 rounded-xl bg-[#E9F6F1] flex items-center justify-center shrink-0">
+                <i data-lucide="code-2" class="w-4 h-4 text-[#267F68]"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="font-semibold leading-tight">编写并执行 Python 脚本</div>
+                <div class="text-[10px] text-[#7A8C87] mt-1 leading-relaxed">生成代码、运行测试并返回结果</div>
+              </div>
+              <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 mt-0.5 text-[#9AA9A4] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"></i>
             </div>
-            <div onclick="sendQuickPrompt('通过 MCP 工具查询当前系统数据库有哪些表，统计数据行数并以Markdown表格输出')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl hover:bg-[#EBF2EF] cursor-pointer text-[#15201D] transition-all">
-              <i data-lucide="database" class="w-4 h-4 text-[#3975B9]"></i>
-              <span class="font-medium">调用 MCP 服务查询数据库结构与统计</span>
+            <div onclick="sendQuickPrompt('通过 MCP 工具查询当前系统数据库有哪些表，统计数据行数并以Markdown表格输出')" class="group flex items-start gap-3 p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E3ECE9] hover:border-[#B8CCC6] hover:shadow-sm cursor-pointer text-[#15201D] transition-all">
+              <div class="w-8 h-8 rounded-xl bg-[#EAF2FC] flex items-center justify-center shrink-0">
+                <i data-lucide="database" class="w-4 h-4 text-[#3975B9]"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="font-semibold leading-tight">查询数据库结构与统计</div>
+                <div class="text-[10px] text-[#7A8C87] mt-1 leading-relaxed">通过 MCP 工具读取表结构和行数</div>
+              </div>
+              <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 mt-0.5 text-[#9AA9A4] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"></i>
             </div>
-            <div onclick="sendQuickPrompt('派发一个专职【算法调研员】子智能体对比快排与归并，派发一个【实现专家】编写脚本测试，最后汇总')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl hover:bg-[#EBF2EF] cursor-pointer text-[#15201D] transition-all">
-              <i data-lucide="git-branch" class="w-4 h-4 text-[#A576C2]"></i>
-              <span class="font-medium">派发子智能体分工协同 (DeerFlow Sub-Agent)</span>
+            <div onclick="sendQuickPrompt('派发一个专职【算法调研员】子智能体对比快排与归并，派发一个【实现专家】编写脚本测试，最后汇总')" class="group flex items-start gap-3 p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E3ECE9] hover:border-[#B8CCC6] hover:shadow-sm cursor-pointer text-[#15201D] transition-all">
+              <div class="w-8 h-8 rounded-xl bg-[#F4EDFA] flex items-center justify-center shrink-0">
+                <i data-lucide="git-branch" class="w-4 h-4 text-[#A576C2]"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="font-semibold leading-tight">派发子智能体协同</div>
+                <div class="text-[10px] text-[#7A8C87] mt-1 leading-relaxed">拆分任务并行执行，最后统一汇总</div>
+              </div>
+              <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 mt-0.5 text-[#9AA9A4] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"></i>
             </div>
-            <div onclick="sendQuickPrompt('加载系统健康诊断技能 (system_diagnostics)，查看当前 Linux 服务器的内存使用与进程状态')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl hover:bg-[#EBF2EF] cursor-pointer text-[#15201D] transition-all">
-              <i data-lucide="activity" class="w-4 h-4 text-[#E9A64E]"></i>
-              <span class="font-medium">运行系统环境与性能健康诊断</span>
+            <div onclick="sendQuickPrompt('加载系统健康诊断技能 (system_diagnostics)，查看当前 Linux 服务器的内存使用与进程状态')" class="group flex items-start gap-3 p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E3ECE9] hover:border-[#B8CCC6] hover:shadow-sm cursor-pointer text-[#15201D] transition-all">
+              <div class="w-8 h-8 rounded-xl bg-[#FCF3E6] flex items-center justify-center shrink-0">
+                <i data-lucide="activity" class="w-4 h-4 text-[#C98B4E]"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="font-semibold leading-tight">系统健康诊断</div>
+                <div class="text-[10px] text-[#7A8C87] mt-1 leading-relaxed">检查内存、进程与运行环境状态</div>
+              </div>
+              <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 mt-0.5 text-[#9AA9A4] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"></i>
             </div>
-            <div onclick="sendQuickPrompt('请执行 rm -rf ./workspace/test 试一试')" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl hover:bg-[#EBF2EF] cursor-pointer text-[#C98B4E] transition-all">
-              <i data-lucide="shield-alert" class="w-4 h-4 text-[#C98B4E]"></i>
-              <span class="font-medium">测试高危指令安全权限拦截</span>
+            <div onclick="sendQuickPrompt('请执行 rm -rf ./workspace/test 试一试')" class="sm:col-span-2 group flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-[#FFFBF6] border border-[#F1E2CF] hover:border-[#E4C9A6] cursor-pointer text-[#8A5A2B] transition-all">
+              <i data-lucide="shield-alert" class="w-4 h-4 text-[#C98B4E] shrink-0"></i>
+              <div class="min-w-0 flex-1">
+                <span class="font-semibold">测试高危指令安全拦截</span>
+                <span class="text-[10px] text-[#A87A4E] ml-2">验证审批、沙箱与审计链路</span>
+              </div>
+              <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 text-[#C98B4E] opacity-60 group-hover:opacity-100 transition-opacity shrink-0"></i>
             </div>
           </div>
         </div>
@@ -841,6 +877,9 @@
     let sessionModalTitle = '';
 
     document.addEventListener('DOMContentLoaded', () => {
+      if (navigator.userAgent.includes('Electron')) {
+        document.getElementById('desktop-badge')?.classList.remove('hidden');
+      }
       lucide.createIcons();
       initSession();
       loadSessions();
@@ -1203,8 +1242,14 @@
     }
 
     function setCurrentSessionHeader(sessionId, title) {
-      document.getElementById('current-session-id').innerText = sessionId;
-      document.getElementById('current-session-title').innerText = title || '新对话';
+      const idEl = document.getElementById('current-session-id');
+      const titleEl = document.getElementById('current-session-title');
+      const displayTitle = title || '新对话';
+      idEl.innerText = '';
+      idEl.classList.add('hidden');
+      titleEl.innerText = displayTitle;
+      titleEl.title = sessionId ? `会话 ID: ${sessionId} · 点击重命名` : '点击重命名';
+      document.title = displayTitle === '新对话' ? 'OmniAgent · 智能体工作台' : `${displayTitle} · OmniAgent`;
     }
 
     function resetConversationView() {
@@ -1289,6 +1334,15 @@
         const container = document.getElementById('session-list');
         container.innerHTML = '';
         document.getElementById('session-count').innerText = list.length;
+        const cleanupBtn = document.getElementById('cleanup-empty-btn');
+        const emptyCount = query ? 0 : list.filter(s => !s.message_count && s.id !== currentSessionId).length;
+        if (cleanupBtn) {
+          cleanupBtn.classList.toggle('hidden', emptyCount === 0);
+          if (emptyCount > 0) cleanupBtn.classList.add('inline-flex');
+          else cleanupBtn.classList.remove('inline-flex');
+          cleanupBtn.title = emptyCount ? `清理 ${emptyCount} 个空会话` : '清理空会话';
+          cleanupBtn.setAttribute('aria-label', emptyCount ? `清理 ${emptyCount} 个空会话` : '清理空会话');
+        }
         if (!list.length) {
           container.innerHTML = `<div class="px-3 py-4 text-[10px] text-[#9AA9A4] text-center">${query ? '没有匹配的对话' : '还没有对话记录'}</div>`;
         }
@@ -1331,9 +1385,46 @@
       } catch(e) {}
     }
 
+    async function cleanupEmptySessions() {
+      if (isStreaming) {
+        toast('当前对话正在运行，请稍后再清理。', 'error');
+        return;
+      }
+      try {
+        const res = await fetch('/api/sessions?limit=100');
+        if (!res.ok) {
+          toast('读取会话列表失败。', 'error');
+          return;
+        }
+        const list = await res.json();
+        const empties = list.filter(s => !s.message_count && s.id !== currentSessionId);
+        if (!empties.length) {
+          toast('没有需要清理的空会话。', 'info');
+          return;
+        }
+        if (!window.confirm(`确定清理 ${empties.length} 个空会话吗？此操作不可撤销。`)) {
+          return;
+        }
+        const results = await Promise.all(empties.map(s => fetch(`/api/sessions/${s.id}`, {method: 'DELETE'})));
+        const removed = results.filter(r => r.ok).length;
+        toast(removed ? `已清理 ${removed} 个空会话。` : '清理失败，请稍后重试。', removed ? 'success' : 'error');
+        loadSessions();
+      } catch (e) {
+        toast('清理空会话失败。', 'error');
+      }
+    }
+
     function createNewSession() {
       if (isStreaming) {
         toast('当前对话正在运行，请稍后再新建。', 'error');
+        return;
+      }
+      const stream = document.getElementById('chat-stream');
+      const emptyState = document.getElementById('empty-state');
+      const alreadyBlank = stream.children.length === 0 && !emptyState.classList.contains('hidden');
+      if (alreadyBlank) {
+        setCurrentSessionHeader(currentSessionId, '新对话');
+        document.getElementById('hero-input')?.focus();
         return;
       }
       currentSessionId = 'sess_' + Math.random().toString(36).substring(2, 10);
@@ -1341,6 +1432,7 @@
       setCurrentSessionHeader(currentSessionId, '新对话');
       resetConversationView();
       loadSessions();
+      setTimeout(() => document.getElementById('hero-input')?.focus(), 30);
     }
 
     function openSessionModal(mode, sessionId, title) {
