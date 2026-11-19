@@ -32,7 +32,11 @@
   </a>
 </p>
 
+<div align="center">
+
 [![M8ven Score](https://m8ven.ai/badge/mcp/cowcool-niushuai-omni-agent-gfj9rg?v=afb2d0783cd74b387a91eba05b4c3671)](https://m8ven.ai/mcp/cowcool-niushuai-omni-agent-gfj9rg?s=readme)
+
+</div>
 
 <p align="center">
   <a href="#快速开始">快速开始</a> ·
